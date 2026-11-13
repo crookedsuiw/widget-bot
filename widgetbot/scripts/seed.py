@@ -1,4 +1,4 @@
-"""Seeds one client: its settings, widget content, FAQs and crawl URLs.
+"""Seeds one client: its settings, widget content, FAQs, knowledge notes and crawl URLs.
 
 Each client's content lives in scripts/clients/<slug>.py; to add a client, copy one of those files.
 Safe to run more than once: existing rows are left untouched, so dashboard edits are never overwritten.
@@ -68,6 +68,13 @@ INSERT_FAQ_QUERY = """
     SELECT id, %(client_id)s, %(question)s, %(embedding)s FROM faq
 """
 
+# A knowledge note, skipped when one with the same title already exists. Params: dict
+INSERT_NOTE_QUERY = """
+    INSERT INTO knowledge_notes (client_id, title, body, embedding)
+    SELECT %(client_id)s, %(title)s, %(body)s, %(embedding)s
+    WHERE NOT EXISTS (SELECT 1 FROM knowledge_notes WHERE client_id = %(client_id)s AND lower(title) = lower(%(title)s))
+"""
+
 # Params: (client_id, url, strategy)
 INSERT_SOURCE_QUERY = """
     INSERT INTO knowledge_sources (client_id, url, strategy)
@@ -79,6 +86,13 @@ def seed(slug):
     c = importlib.import_module(f"scripts.clients.{slug}")
     questions = list(c.FAQS.keys())
     faq_embeddings = get_ov_embedding(questions).numpy() if questions else []
+    notes = [(title.strip(), body.strip()) for title, body in getattr(c, "KNOWLEDGE_NOTES", [])]
+    for title, body in notes:
+        # Same limits as the dashboard's note editor
+        if not (1 <= len(title) <= 120 and 1 <= len(body) <= 2000):
+            raise SystemExit(f"Knowledge note '{title[:40]}': title must be 1-120 chars and body 1-2000 chars.")
+    # Embedded as title + body, the same way the dashboard does it
+    note_embeddings = get_ov_embedding([f"{t}\n{b}" for t, b in notes]).numpy() if notes else []
 
     with psycopg.connect(DATABASE_URL) as conn:
         register_vector(conn)
@@ -100,6 +114,11 @@ def seed(slug):
                 cur.executemany(INSERT_FAQ_QUERY, [
                     {"client_id": client_id, "question": question, "answers": c.FAQS[question], "embedding": embedding}
                     for question, embedding in zip(questions, faq_embeddings)
+                ])
+            if notes:
+                cur.executemany(INSERT_NOTE_QUERY, [
+                    {"client_id": client_id, "title": title, "body": body, "embedding": embedding}
+                    for (title, body), embedding in zip(notes, note_embeddings)
                 ])
             cur.executemany(INSERT_SOURCE_QUERY, [
                 (client_id, url, strategy) for url, strategy in c.KNOWLEDGE_SOURCES

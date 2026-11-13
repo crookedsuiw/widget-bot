@@ -1,6 +1,6 @@
 -- One-time Postgres setup for widgetbot. Run as a superuser, e.g.:
 --   psql -h localhost -U postgres -f migrations/db_setup.sql
---   sudo -u postgres psql -f migrations/db_setup.sql
+--   sudo -u postgres psql -f migrations/db_setup.sql (Linux)
 -- You'll be prompted for the postgres password, then for a new password for the widgetbot user.
 
 CREATE ROLE widgetbot LOGIN;

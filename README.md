@@ -30,7 +30,7 @@ widgetbot/
 ├── features/            Chat engine, leads, summaries, retention, dashboard APIs
 ├── migrations/          Database setup and schema changes
 ├── scripts/
-│   ├── clients/<slug>.py   Your starting content (prompt, FAQs, pages to crawl)
+│   ├── clients/<slug>.py   Your starting content (prompt, FAQs, notes, pages to crawl)
 │   ├── seed.py             Loads that content into the database
 │   └── create_admin.py     Creates or resets a dashboard login
 ├── static/

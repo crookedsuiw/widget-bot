@@ -49,6 +49,13 @@ FAQS = {
     # "how do i contact support": ["Email us at support@example.com 📧"],
 }
 
+# --- Knowledge notes: facts that aren't on the website, as (title, body) (dashboard: Knowledge) ---
+# Searched together with the crawled extracts; crawls never touch them. Title up to 120 chars, body up to 2000.
+# A note is skipped if one with the same title already exists.
+KNOWLEDGE_NOTES = [
+    # ("Opening hours", "We're open Monday to Friday, 9am-5pm GMT. Closed on public holidays."),
+]
+
 # --- Pages to crawl into the knowledge base: (url, strategy) ---
 # 'html' splits on headings; 'recursive_only' splits plain text (better for pages without clear headings).
 KNOWLEDGE_SOURCES = [
