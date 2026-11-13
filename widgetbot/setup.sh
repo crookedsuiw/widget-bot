@@ -29,7 +29,9 @@ echo "==> 1/4 Database tables"
 if ! "$PY" -m migrations.migrate; then
     echo
     echo "Could not set up the database. If this is the first install, create it once as a Postgres superuser:"
+    echo "Make sure a virtual environment is active and has requirements.txt installed"
     echo "    psql -h localhost -U postgres -f migrations/db_setup.sql"
+    echo "    sudo -u postgres psql -f migrations/db_setup.sql"
     echo "then put the password you chose into DATABASE_URL in .env and run this script again."
     exit 1
 fi
