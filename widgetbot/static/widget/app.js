@@ -126,11 +126,24 @@
 
     // Bot replies may contain links and light formatting. Everything else is stripped, so a reply
     // (or prompt-injected page content) can never run script inside the widget.
+    // Runs of lines starting with "* " or "- " become a <ul>; the list's own margins replace the blank lines around it.
+    // Same rule as the dashboard's botHtml (static/admin/format.js).
+    function bulletLists(text) {
+        return text
+            .replace(/(?:^[ \t]*[*-][ \t]+.*(?:\n|$))+/gm, function (block) {
+                return '<ul>' + block.replace(/\n$/, '').split('\n').map(function (line) {
+                    return '<li>' + line.replace(/^[ \t]*[*-][ \t]+/, '') + '</li>';
+                }).join('') + '</ul>';
+            })
+            .replace(/\n+(?=<ul>)/g, '')
+            .replace(/(<\/ul>)\n+/g, '$1');
+    }
+
     function renderBotContent(text) {
-        var html = String(text || '')
+        var html = bulletLists(String(text || '')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             // ~~text~~ strikethrough; must hug the text, so "~~ x ~~" and lone "~5 min" stay as typed
-            .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '<del>$1</del>')
+            .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '<del>$1</del>'))
             .replace(/\n/g, '<br>');
         var fragment = DOMPurify.sanitize(html, {
             ALLOWED_TAGS: ['a', 'br', 'strong', 'b', 'em', 'i', 'del', 's', 'ul', 'ol', 'li', 'p'],

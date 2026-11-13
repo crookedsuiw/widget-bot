@@ -71,11 +71,20 @@ export function phoneLink(phone, className) {
     return h('a', { class: className, href: `tel:${phone}`, text: phone });
 }
 
-/** Bot replies may contain links, line breaks, bold and ~~strikethrough~~; everything else is stripped. */
+// Runs of lines starting with "* " or "- " become a <ul>; same rule as the widget's bulletLists.
+function bulletLists(text) {
+    return text
+        .replace(/(?:^[ \t]*[*-][ \t]+.*(?:\n|$))+/gm, (block) => '<ul>' + block.replace(/\n$/, '').split('\n')
+            .map((line) => `<li>${line.replace(/^[ \t]*[*-][ \t]+/, '')}</li>`).join('') + '</ul>')
+        .replace(/\n+(?=<ul>)/g, '')
+        .replace(/(<\/ul>)\n+/g, '$1');
+}
+
+/** Bot replies may contain links, line breaks, bullet lists, bold and ~~strikethrough~~; everything else is stripped. */
 export function botHtml(text) {
-    const html = String(text || '')
+    const html = bulletLists(String(text || '')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '<del>$1</del>')  // same rule as the widget
+        .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '<del>$1</del>'))  // same rule as the widget
         .replace(/\n/g, '<br>');
     const fragment = window.DOMPurify.sanitize(html, {
         ALLOWED_TAGS: ['a', 'br', 'strong', 'b', 'em', 'i', 'del', 's', 'ul', 'ol', 'li', 'p'],

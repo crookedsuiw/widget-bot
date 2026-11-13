@@ -222,6 +222,7 @@ a.row:hover { background: var(--row-hover); }
 }
 .t-bot { align-self: flex-start; max-width: 84%; display: flex; flex-direction: column; gap: 6px; }
 .t-bot-bubble { padding: 12px 14px; border-radius: 18px 18px 18px 6px; background: var(--surface); box-shadow: var(--shadow-soft); line-height: 1.55; overflow-wrap: anywhere; }
+.t-bot-bubble ul, .t-bot-bubble ol { margin: 6px 0; padding-left: 20px; }
 .t-bot-bubble .action-btn { display: inline-block; margin-top: 8px; padding: 6px 14px; border-radius: 999px; background: var(--action-gradient); color: var(--on-accent); font-weight: 600; text-decoration: none; }
 .t-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--text-muted); padding-left: 4px; }
 .t-error { padding: 8px 12px; border-radius: 12px; background: var(--danger-bg); color: var(--danger); font-size: 12.5px; overflow-wrap: anywhere; }
