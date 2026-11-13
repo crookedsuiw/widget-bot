@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+groq
+psycopg[binary,pool]
+pgvector
+numpy
+sentence-transformers
+torch
+playwright
+beautifulsoup4
+langchain-text-splitters
+optimum-intel
+openvino
+transformers

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="preload" href="/static/fonts/plus-jakarta-sans-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/static/admin/theme.css?v=__V__">
+    <link rel="stylesheet" href="/static/admin/admin.css?v=__V__">
+    <script src="/static/vendor/purify.min.js" defer></script>
+    <script type="module" src="/static/admin/app.js?v=__V__"></script>
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand" id="brand"></div>
+            <nav class="nav" id="nav" aria-label="Dashboard sections"></nav>
+            <div class="sidebar-foot">
+                <button type="button" class="link-btn" id="enable-alerts" hidden>Turn on desktop alerts</button>
+                <p class="account" id="account"></p>
+                <button type="button" class="link-btn" id="logout">Log out</button>
+            </div>
+        </aside>
+        <main class="main" id="view" tabindex="-1"></main>
+    </div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>

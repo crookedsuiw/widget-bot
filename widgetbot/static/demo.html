@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widget demo</title>
+    <style>
+        body { margin: 0; font-family: system-ui, sans-serif; background: #F4F5F9; color: #4A5060; }
+        main { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+        h1 { color: #1F2533; }
+        code, pre { background: #FFFFFF; border-radius: 8px; }
+        pre { padding: 16px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Widget demo page</h1>
+        <p>This page stands in for a client's website. The chat launcher in the bottom-right corner is
+            loaded by the same one-line snippet a client pastes into their site:</p>
+        <pre><code>&lt;script src="http://localhost:8000/widget.js" data-key="__WIDGET_KEY__" async&gt;&lt;/script&gt;</code></pre>
+        <p>Replace the host with the deployed server's address when embedding on a real site, and add that
+            site to the client's <code>allowed_origins</code>.</p>
+    </main>
+    <script src="/widget.js" data-key="__WIDGET_KEY__" async></script>
+</body>
+</html>

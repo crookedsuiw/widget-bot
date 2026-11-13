@@ -1,0 +1,88 @@
+/* Dashboard theme: every colour, font and shadow the manager dashboard uses. Restyle a client here.
+   The widget has its own theme in /static/widget/theme.css. */
+
+@font-face {
+    font-family: 'Plus Jakarta Sans';
+    src: url('/static/fonts/plus-jakarta-sans-latin-wght.woff2') format('woff2');
+    font-weight: 200 800;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Bricolage Grotesque';
+    src: url('/static/fonts/bricolage-grotesque-latin-700.woff2') format('woff2');
+    font-weight: 700;
+    font-display: swap;
+}
+
+:root {
+    /* Text and lines */
+    --text: #5B6170;
+    --text-strong: #3F4553;
+    --text-muted: #6B7180;
+    --line: #E7E8EF;
+    --strike: rgba(31, 37, 51, 0.25);          /* hidden knowledge text */
+
+    /* Surfaces */
+    --surface: #FFFFFF;
+    --page-bg: linear-gradient(135deg, #E8F8FC 0%, #F2EEFA 55%, #FBEFEA 100%);
+    --transcript-bg: linear-gradient(135deg, #F3FBFD 0%, #F7F5FC 55%, #FDF7F4 100%);
+    --sidebar-bg: rgba(255, 255, 255, 0.62);
+    --nav-hover: rgba(255, 255, 255, 0.8);
+    --glass: rgba(255, 255, 255, 0.7);         /* segmented controls, checkbox chips */
+    --well: #F7F7FA;                           /* notes, previews, code blocks */
+    --hover-bg: #F4F4F8;
+    --row-hover: #FAFAFD;
+    --row-highlight: #FBF9FF;                  /* unseen leads, FAQ suggestions */
+    --track: #F1F2F6;                          /* pills, bar tracks */
+    --switch-off: #D9DBE3;
+    --bar-idle: #C9CCD6;
+
+    /* Brand accent */
+    --accent: #8B5CF6;                         /* focus rings, toggles, active controls */
+    --accent-strong: #7C3AED;                  /* links */
+    --accent-tint: #F2EEFA;
+    --accent-tint-border: #DDD3F7;
+    --accent-gradient: linear-gradient(135deg, #1EC8E6 0%, #8B5CF6 100%);
+    --action-gradient: linear-gradient(135deg, #FCB711 0%, #8B5CF6 100%);   /* link buttons in bot replies */
+    --on-accent: #FFFFFF;
+    --user-bubble: linear-gradient(135deg, #B78290D2 37%, #9483AAC7 100%);
+    --user-bubble-text-shadow: 0 1px 1px rgba(60, 30, 50, 0.28);
+
+    /* Status */
+    --danger: #B42318;
+    --danger-border: #D92D20;
+    --danger-bg: #FDECEC;
+    --success: #12805C;
+    --success-bg: #EAF7F1;
+    --warn-bg: #FFF6E5;
+    --warn-text: #8A5300;
+
+    /* Lead interest pills */
+    --pill-hot-bg: #FFEDE3;
+    --pill-hot-text: #B54708;
+    --pill-warm-bg: #FEF6DC;
+    --pill-warm-text: #93680A;
+    --pill-cold-bg: #E3F7FB;
+    --pill-cold-text: #0B6E85;
+    --pill-lead-text: #6D28D9;
+
+    /* Overview charts (read by charts.js). Series colours were checked for colour-blind contrast on white. */
+    --chart-grid: #E7E8EF;
+    --chart-axis: #6B7180;
+    --chart-hover: #F4F1FB;
+    --chart-series-1: #7C3AED;
+    --chart-series-2: #0B8FAD;
+    --chart-series-3: #C97F00;
+
+    /* Shadows */
+    --shadow-soft: 0 4px 14px rgba(31, 37, 51, 0.07);
+    --shadow-pop: 0 24px 48px -16px rgba(31, 37, 51, 0.22), 0 2px 6px rgba(31, 37, 51, 0.06);
+    --shadow-accent: 0 4px 10px -4px rgba(124, 58, 237, 0.6);
+    --shadow-knob: 0 1px 2px rgba(31, 37, 51, 0.2);
+
+    /* Motion and type */
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-display: 'Bricolage Grotesque', var(--font);
+}

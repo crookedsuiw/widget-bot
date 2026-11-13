@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log in · Dashboard</title>
+    <link rel="stylesheet" href="/static/admin/theme.css?v=__V__">
+    <link rel="stylesheet" href="/static/admin/admin.css?v=__V__">
+    <script src="/static/admin/login.js?v=__V__" defer></script>
+</head>
+<body class="login-page">
+    <form class="login-card" id="login-form">
+        <h1>Dashboard</h1>
+        <p class="muted">Log in to see leads and chats.</p>
+        <label class="field">
+            <span>Username</span>
+            <input name="username" autocomplete="username" required autofocus>
+        </label>
+        <label class="field">
+            <span>Password</span>
+            <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p class="form-error" id="login-error" role="alert"></p>
+        <button type="submit" class="btn btn-primary">Log in</button>
+    </form>
+</body>
+</html>

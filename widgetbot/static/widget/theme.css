@@ -1,0 +1,76 @@
+/* Chat panel theme: every colour, font and shadow the panel uses. Restyle a client here.
+   The launcher button on the host page has its own copy of the brand colours: see THEME in /static/widget.js.
+   If you swap the body font, also update the <link rel="preload"> in index.html. */
+
+@font-face {
+    font-family: 'Plus Jakarta Sans';
+    src: url('/static/fonts/plus-jakarta-sans-latin-wght.woff2') format('woff2');
+    font-weight: 200 800;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Bricolage Grotesque';
+    src: url('/static/fonts/bricolage-grotesque-latin-700.woff2') format('woff2');
+    font-weight: 700;
+    font-display: swap;
+}
+
+:root {
+    /* Text */
+    --text: #5B6170;
+    --text-muted: #4A5060;
+    --text-faint: #5B6170BC;      /* welcome / empty-state headings */
+    --icon-muted: #6B7180;
+    --icon-subtle: #8A90A0;       /* chevrons, placeholder, disabled send icon */
+    --link: #5B21B6;
+
+    /* Surfaces */
+    --surface: #FFFFFF;
+    --glass: rgba(255, 255, 255, 0.7);
+    --panel-bg: linear-gradient(135deg, #E8F8FC 0%, #F2EEFA 55%, #FBEFEA 100%);
+    --fullscreen-bg: linear-gradient(160deg, #E8F8FC 0%, #F2EEFA 55%, #FBEFEA 100%);
+    --scrollbar: rgba(91, 97, 112, .25);
+
+    /* Brand accent */
+    --accent: #8B5CF6;
+    --accent-soft: rgba(139, 92, 246, 0.12);   /* pressed feedback button */
+    --accent-tint: #F2EEFA;                    /* phone prefix box */
+    --accent-gradient: linear-gradient(135deg, #1EC8E6 0%, #8B5CF6 100%);   /* send / submit buttons */
+    --action-gradient: linear-gradient(135deg, #FCB711 0%, #8B5CF6 100%);   /* link buttons in replies */
+    --on-accent: #FFFFFF;                      /* text and icons on the gradients */
+
+    /* Chat bubbles */
+    --user-bubble: linear-gradient(135deg, #B78290D2 37%, #9483AAC7 100%);
+    --user-bubble-text-shadow: 0 1px 1px rgba(60, 30, 50, 0.28);
+    --typing-1: #8B5CF6;
+    --typing-2: #A78BFA;
+    --typing-3: #C4B5FD;
+
+    /* Quick-reply icons on the welcome screen */
+    --qr-icon-sparkle: #8B5CF6;
+    --qr-icon-download: #14B8D8;
+    --qr-icon-games: #DB2777;
+    --qr-icon-phone: #F97316;
+
+    /* Forms and states */
+    --input-border: #E3E5EC;
+    --input-bg: #FAFAFC;
+    --disabled-bg: #E9EAF0;
+    --error: #B42318;
+    --online: #16A34A;
+    --badge-bg: #E3F7FB;          /* "Current" badge in History */
+    --badge-text: #0B6E85;
+
+    /* Shadows */
+    --shadow-soft: 0 4px 14px rgba(31, 37, 51, 0.07);
+    --shadow-btn: 0 2px 8px rgba(31, 37, 51, 0.08);
+    --shadow-accent: 0 4px 10px -4px rgba(124, 58, 237, 0.6);
+    --shadow-user-bubble: 0 8px 18px -8px rgba(183, 130, 144, 0.55), 0 1px 2px rgba(31, 37, 51, 0.05);
+    --shadow-composer: 0 6px 20px -6px rgba(31, 37, 51, 0.18), 0 1px 3px rgba(31, 37, 51, 0.06);
+
+    /* Motion and type */
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-display: 'Bricolage Grotesque', var(--font);
+}
