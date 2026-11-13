@@ -5,8 +5,12 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 from pgvector.psycopg import register_vector
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Never hardcode a password here: put it in DATABASE_URL, or leave it out and set PGPASSWORD (or ~/.pgpass)
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://widgetbot@localhost:5432/widgetbot")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 # How long client/settings lookups are cached, so dashboard edits apply without a restart
 CACHE_TTL_SECONDS = 30
