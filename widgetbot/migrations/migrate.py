@@ -9,6 +9,10 @@ import re
 import psycopg
 from core.db import DATABASE_URL
 
+# Migrations create and change tables, so they log in as the owner role; the app's own role can't.
+# Falls back to DATABASE_URL for installs set up before the two roles existed.
+MIGRATIONS_DATABASE_URL = os.environ.get("MIGRATIONS_DATABASE_URL") or DATABASE_URL
+
 MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "versions")
 
 # Statements Postgres refuses to run inside a transaction block; they would break the all-or-nothing run
@@ -22,7 +26,7 @@ CREATE_MIGRATIONS_TABLE_QUERY = """
 """
 
 def main():
-    with psycopg.connect(DATABASE_URL) as conn:
+    with psycopg.connect(MIGRATIONS_DATABASE_URL) as conn:
         conn.execute(CREATE_MIGRATIONS_TABLE_QUERY)
         applied = {row[0] for row in conn.execute("SELECT filename FROM schema_migrations")}
         conn.commit()

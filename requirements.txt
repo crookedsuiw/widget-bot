@@ -1,4 +1,5 @@
 fastapi
+python-dotenv
 uvicorn
 groq
 psycopg[binary,pool]
