@@ -6,12 +6,12 @@ import asyncio
 import hashlib
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from typing import Literal
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from typing import Annotated, Literal
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from core import config
 from core import db
 from features import (
@@ -75,23 +75,27 @@ app.include_router(admin.router)
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Every visitor-sent string has a length cap, so no request can make the server hold or store a huge value
+SessionId = Annotated[str, StringConstraints(max_length=64)]   # A UUID is 36 characters
+WidgetKey = Annotated[str, StringConstraints(max_length=64)]
+
 class ChatRequest(BaseModel):
-    session_id: str = ""
+    session_id: SessionId = ""
     message: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
-    widget_key: str | None = None
-    origin: str | None = None  # Website the widget is embedded on (sent by widget.js)
+    widget_key: WidgetKey | None = None
+    origin: str | None = Field(default=None, max_length=200)  # Website the widget is embedded on (sent by widget.js)
 
 class SummariesRequest(BaseModel):
-    widget_key: str
-    ids: list[str] = Field(max_length=MAX_HISTORY_IDS)
+    widget_key: WidgetKey
+    ids: list[SessionId] = Field(max_length=MAX_HISTORY_IDS)
 
 class FeedbackRequest(BaseModel):
-    session_id: str
+    session_id: SessionId
     value: Literal[1, -1, 0]  # 0 clears the rating
 
 class LeadRequest(BaseModel):
-    widget_key: str
-    session_id: str
+    widget_key: WidgetKey
+    session_id: SessionId
     name: str = Field(default="", max_length=leads.MAX_NAME_CHARS)
     phone: str = Field(min_length=6, max_length=25)
     consent: Literal[True]  # The form can't be sent without ticking the consent box
@@ -139,6 +143,11 @@ def parse_conversation_id(session_id):
     except ValueError:
         return None
 
+def embed_origin(client, origin):
+    """The website the chat came from, kept only when it is one of the client's allowed origins (or the test page)."""
+    origin = (origin or "").strip().rstrip("/")
+    return origin if origin in client["allowed_origins"] or origin == config.PUBLIC_BASE_URL else None
+
 def read_text(path):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -162,7 +171,7 @@ async def widget_loader():
                         headers={"Cache-Control": "public, max-age=300"})
 
 @app.get("/widget", response_class=HTMLResponse)
-async def widget_page(key: str):
+async def widget_page(key: str = Query(max_length=64)):
     """The chat panel, loaded by widget.js in an iframe."""
     client = resolve_client(key)
     settings = get_settings_or_503(client["id"])
@@ -190,7 +199,7 @@ async def widget_page(key: str):
     return HTMLResponse(page, headers={"Content-Security-Policy": csp, "Cache-Control": "no-cache"})
 
 @app.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: uuid.UUID, key: str):
+async def get_conversation(conversation_id: uuid.UUID, key: str = Query(max_length=64)):
     client = resolve_client(key)
     rows = db.get_conversation_messages(client["id"], conversation_id)
     if not rows:
@@ -232,7 +241,7 @@ async def chat(request: ChatRequest, http_request: Request):
 
     conversation_id = db.get_or_create_conversation(
         client_id, parse_conversation_id(request.session_id),
-        request.origin or http_request.headers.get("origin"),
+        embed_origin(client, request.origin or http_request.headers.get("origin")),
     )
     history = db.get_recent_messages(conversation_id, HISTORY_TURNS * 2)
     user_message = request.message
