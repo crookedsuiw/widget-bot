@@ -1,3 +1,4 @@
+import html
 import os
 import uuid
 import time
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator
 from core import config
 from core import db
 from core import limits
+from core import net_safety
 from core import text_safety
 from features import (
     chat_engine,
@@ -176,7 +178,7 @@ def get_settings_or_503(client_id):
 async def demo_page():
     """A stand-in host page with the widget embedded, for local testing."""
     client = resolve_client(None)
-    return read_text("static/demo.html").replace("__WIDGET_KEY__", client["widget_key"])
+    return read_text("static/demo.html").replace("__WIDGET_KEY__", html.escape(client["widget_key"], quote=True))
 
 @app.get("/widget.js")
 async def widget_loader():
@@ -207,7 +209,9 @@ async def widget_page(key: str = Query(max_length=64)):
     page = read_text(f"{WIDGET_DIR}/index.html").replace("__CONFIG__", config_json).replace("__V__", ASSET_VERSION)
 
     # Browsers refuse to show the panel inside any site not on the client's allowed list
-    frame_ancestors = " ".join(["'self'", *client["allowed_origins"]])
+    # Only well-formed origins go in: a ";" or space in one would add or change CSP directives
+    frame_ancestors = " ".join(["'self'", *(o for o in client["allowed_origins"]
+                                            if net_safety.ORIGIN_PATTERN.fullmatch(o))])
     csp = (f"frame-ancestors {frame_ancestors}; default-src 'self'; img-src 'self' https: data:; "
            f"style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'")
     return HTMLResponse(page, headers={"Content-Security-Policy": csp, "Cache-Control": "no-cache"})

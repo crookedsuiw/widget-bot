@@ -18,7 +18,7 @@ CRAWL_STALE_MINUTES = 30
 INTERRUPTED_ERROR = "Interrupted: the server stopped before the crawl finished"
 
 # The crawler is a real browser on our server, so every request it makes goes through a filtering proxy that
-# refuses private/internal addresses (see DEVELOPING.md). It is what stops redirects and in-page scripts from
+# refuses private/internal addresses (see "Crawler proxy" in README.md). It is what stops redirects and in-page scripts from
 # reaching internal services. CRAWLER_ALLOW_DIRECT=1 skips it, for local development only.
 CRAWLER_PROXY_URL = os.environ.get("CRAWLER_PROXY_URL", "").strip()
 CRAWLER_ALLOW_DIRECT = os.environ.get("CRAWLER_ALLOW_DIRECT") == "1"
@@ -33,7 +33,7 @@ def proxy_problem():
     if CRAWLER_PROXY_URL or CRAWLER_ALLOW_DIRECT:
         return None
     return ("Crawling is turned off until CRAWLER_PROXY_URL is set in .env "
-            "(a proxy that blocks private addresses, see DEVELOPING.md).")
+            "(a proxy that blocks private addresses, see "Crawler proxy" in README.md).")
 
 async def _block_internal_requests(route, cache):
     """Second layer behind the proxy: drops any request (page, script, image, fetch) to a non-public host."""
