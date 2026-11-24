@@ -22,6 +22,8 @@ SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 EMAIL_TRANSCRIPT_MESSAGES = 30
+# A conversation's callback request alerts the manager again only after this long
+ALERT_GAP_MINUTES = 15
 
 # Re-submitting from the same conversation updates the lead and alerts again.
 # Params: (client_id, conversation_id, name, phone, consent_text)
@@ -31,6 +33,18 @@ UPSERT_LEAD_QUERY = """
     ON CONFLICT (conversation_id) DO UPDATE
         SET name = EXCLUDED.name, phone = EXCLUDED.phone, consent_text = EXCLUDED.consent_text,
             consent_at = now(), seen_at = NULL
+    RETURNING id, created_at
+"""
+
+# A conversation's lead, locked while it is updated. Params: (alert_gap_minutes, conversation_id)
+LOCK_LEAD_QUERY = """
+    SELECT consent_at > now() - make_interval(mins => %s) AS recent FROM leads WHERE conversation_id = %s FOR UPDATE
+"""
+
+# A quick re-send (e.g. a corrected number): updated without marking it new again. Params: (name, phone, consent_text, conversation_id)
+UPDATE_RECENT_LEAD_QUERY = """
+    UPDATE leads SET name = %s, phone = %s, consent_text = %s, consent_at = now()
+    WHERE conversation_id = %s
     RETURNING id, created_at
 """
 
@@ -68,12 +82,23 @@ def consent_text(client):
     return client.get("consent_text") or default_consent_text(client)
 
 def save_lead(client, conversation_id, name, phone):
-    """Stores (or updates) the lead. Raises InvalidPhone. Returns the lead row (id, created_at)."""
+    """Stores (or updates) the lead. Raises InvalidPhone.
+
+    Returns (lead row with id and created_at, alert). alert is False when the same conversation already sent a
+    callback request in the last ALERT_GAP_MINUTES: the details are updated, but the manager isn't alerted,
+    summarised for or emailed again, so re-sending the form can't flood them or spend AI tokens.
+    """
     phone = normalize_phone(phone)
     name = (name or "").strip()[:MAX_NAME_CHARS] or None
-    with db.pool.connection() as conn:
-        return conn.execute(UPSERT_LEAD_QUERY,
-                            (client["id"], conversation_id, name, phone, consent_text(client))).fetchone()
+    with db.pool.connection() as conn, conn.transaction():
+        existing = conn.execute(LOCK_LEAD_QUERY, (ALERT_GAP_MINUTES, conversation_id)).fetchone()
+        if existing and existing["recent"]:
+            row = conn.execute(UPDATE_RECENT_LEAD_QUERY,
+                               (name, phone, consent_text(client), conversation_id)).fetchone()
+            return row, False
+        row = conn.execute(UPSERT_LEAD_QUERY,
+                           (client["id"], conversation_id, name, phone, consent_text(client))).fetchone()
+        return row, True
 
 # --- Live push to open dashboards (Server-Sent Events) ---
 # In-memory, so it only reaches dashboards connected to this server process.
