@@ -75,7 +75,7 @@ psql -h localhost -U postgres -f migrations/db_setup.sql
 cp .env.example .env
 ```
 
-Open `.env` and fill in `DATABASE_URL` (with the password from step 2) and `GROQ_API_KEY`. Each setting is explained in the file. Keep `.env` private and out of version control.
+Open `.env` and fill in `DATABASE_URL` (with the password from step 2), `GROQ_API_KEY` and `PUBLIC_BASE_URL` (`http://127.0.0.1:8000` for a local test). Each setting is explained in the file. Keep `.env` private and out of version control.
 
 ### 4. Set up and start
 
@@ -126,6 +126,7 @@ Browsers pick up the changes after a restart (`./run.sh`). The widget's file ver
 ## Going live checklist
 
 - Serve the app over HTTPS behind a reverse proxy (nginx, Caddy), and set `COOKIE_SECURE=1` in `.env`.
+- Set `PUBLIC_BASE_URL` to the live address, e.g. `https://bot.example.com`. The proxy must pass the original host name on (nginx: `proxy_set_header Host $host;`); requests for any other host name are refused.
 - Use a strong database password. Keep it only in `.env`.
 - Run a single worker. `run.sh` already does this; don't add `--reload` or extra workers. Rate limits, login lockouts, live lead alerts and crawls are kept in memory.
 - Run the crawler proxy and set `CRAWLER_PROXY_URL` (see below). Crawling stays off until it is set.
