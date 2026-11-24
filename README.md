@@ -125,7 +125,10 @@ Browsers pick up the changes after a restart (`./run.sh`). The widget's file ver
 
 ## Going live checklist
 
-- Serve the app over HTTPS behind a reverse proxy (nginx, Caddy), and set `COOKIE_SECURE=1` in `.env`.
+- Serve the app over HTTPS behind a reverse proxy (nginx, Caddy) on the same machine, and keep `COOKIE_SECURE=1` in `.env`. In the proxy:
+  - pass the visitor's address on (nginx: `proxy_set_header X-Forwarded-For $remote_addr;`). Rate limits count per visitor address; uvicorn trusts this header only from `127.0.0.1`. If the proxy runs on another machine, add `--forwarded-allow-ips <proxy-ip>` to `run.sh` (never `*`, or anyone can fake their address).
+  - limit request bodies (nginx: `client_max_body_size 64k;`)
+  - send HSTS (nginx: `add_header Strict-Transport-Security "max-age=31536000" always;`)
 - Set `PUBLIC_BASE_URL` to the live address, e.g. `https://bot.example.com`. The proxy must pass the original host name on (nginx: `proxy_set_header Host $host;`); requests for any other host name are refused.
 - Use a strong database password. Keep it only in `.env`.
 - Run a single worker. `run.sh` already does this; don't add `--reload` or extra workers. Rate limits, login lockouts, live lead alerts and crawls are kept in memory.
