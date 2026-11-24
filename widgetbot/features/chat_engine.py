@@ -45,6 +45,9 @@ _LEFTOVER_TAG = re.compile(r"^\s*\[[A-Z_ ]{4,}\]|\[[A-Z_ ]{4,}\]\s*$")
 
 _EXTRACTS_TAG = re.compile(r"<\s*/?\s*website_extracts\s*>", re.IGNORECASE)
 
+# A Markdown link, [label](https://...). Some models answer with these instead of the button HTML asked for.
+_MARKDOWN_LINK = re.compile(r"\[([^\[\]\n]{1,100})\]\((https?://[^\s()]+)\)")
+
 faq_counters = {} # Keeps track of answer rotation per FAQ id
 
 def faq_button_html(faq):
@@ -53,6 +56,16 @@ def faq_button_html(faq):
         return ""
     return (f"<br><a href='{html.escape(faq['button_url'], quote=True)}' target='_blank' class='action-btn'>"
             f"{html.escape(faq['button_label'])}</a>")
+
+def markdown_links_to_buttons(text):
+    """Turns Markdown links into the same action-btn links the prompt asks for, so they render as buttons.
+
+    Runs before html_safety.clean_reply, which still drops any whose address isn't an approved link.
+    """
+    return _MARKDOWN_LINK.sub(
+        lambda m: (f"<a href='{html.escape(m.group(2), quote=True)}' target='_blank' class='action-btn'>"
+                   f"{html.escape(m.group(1))}</a>"),
+        text)
 
 def semantic_router(client_id, settings, message: str, user_embedding):
     """
@@ -204,7 +217,7 @@ def answer(client_id, settings, user_message, history, allow_ai=True):
     text, usage, error = complete(messages, settings["model"])
     text, wants_callback, unanswered = parse_signals(text)
     # Whatever the model was talked into writing, only allowed formatting and approved links get through
-    text = html_safety.clean_reply(text, settings["approved_links"]).strip()
+    text = html_safety.clean_reply(markdown_links_to_buttons(text), settings["approved_links"]).strip()
 
     if not error and not text and wants_callback:
         # The model sent only the tag: still offer the call, with a short reply instead of an error
