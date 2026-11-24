@@ -3,12 +3,10 @@
 Every query is scoped to the logged-in account's client_id.
 """
 import asyncio
-import ipaddress
 import os
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Literal
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.errors import UniqueViolation
@@ -16,6 +14,7 @@ from pydantic import BaseModel, Field
 from core import auth
 import crawler
 from core import db
+from core import net_safety
 
 api = APIRouter(prefix="/admin/api", dependencies=[Depends(auth.require_account)])
 
@@ -257,6 +256,9 @@ async def crawl_state(account=Depends(auth.require_account)):
 @api.post("/crawl")
 async def start_crawl(account=Depends(auth.require_account)):
     client_id = account["client_id"]
+    problem = crawler.proxy_problem()
+    if problem:
+        raise HTTPException(status_code=503, detail=problem)
     run_id = await asyncio.to_thread(crawler.start_run, client_id)
     if run_id is None:
         raise HTTPException(status_code=409, detail="A crawl is already running")
@@ -269,24 +271,14 @@ async def start_crawl(account=Depends(auth.require_account)):
 
 def _check_crawl_url(raw):
     """Only public http(s) pages: the crawler runs on our server, so it must not be pointed at internal addresses."""
-    url = raw.strip()
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise HTTPException(status_code=422, detail="Enter a full web address starting with https://")
-    host = parsed.hostname
-    if host == "localhost" or host.endswith(".localhost") or host.endswith(".local"):
-        raise HTTPException(status_code=422, detail="Local addresses can't be crawled")
     try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return url
-    if not ip.is_global:
-        raise HTTPException(status_code=422, detail="Private network addresses can't be crawled")
-    return url
+        return net_safety.check_public_url(raw)
+    except net_safety.UnsafeURL as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 @api.post("/sources")
 async def add_source(body: SourceCreate, account=Depends(auth.require_account)):
-    url = _check_crawl_url(body.url)
+    url = await asyncio.to_thread(_check_crawl_url, body.url)  # DNS lookup
     try:
         with db.pool.connection() as conn:
             return conn.execute(ADD_SOURCE_QUERY, (account["client_id"], url, body.strategy)).fetchone()
