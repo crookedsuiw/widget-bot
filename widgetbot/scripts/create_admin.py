@@ -13,11 +13,13 @@ from core.auth import MIN_PASSWORD_LENGTH, hash_password
 # Params: (slug,)
 GET_CLIENT_ID_QUERY = "SELECT id FROM clients WHERE slug = %s"
 
-# Re-running for an existing username resets its password. Params: (client_id, username, password_hash)
+# Re-running for an existing username resets its password, but only when that login belongs to this client
+# (no row comes back otherwise). Params: (client_id, username, password_hash)
 UPSERT_ACCOUNT_QUERY = """
     INSERT INTO admin_accounts (client_id, username, password_hash)
     VALUES (%s, %s, %s)
     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = now()
+        WHERE admin_accounts.client_id = EXCLUDED.client_id
     RETURNING (xmax = 0) AS created
 """
 
@@ -47,7 +49,10 @@ def main():
         row = conn.execute(GET_CLIENT_ID_QUERY, (args.client,)).fetchone()
         if row is None:
             raise SystemExit(f"Unknown client '{args.client}'. Run seed.py first.")
-        created = conn.execute(UPSERT_ACCOUNT_QUERY, (row[0], args.username, hash_password(password))).fetchone()[0]
+        result = conn.execute(UPSERT_ACCOUNT_QUERY, (row[0], args.username, hash_password(password))).fetchone()
+        if result is None:
+            raise SystemExit(f"The username '{args.username}' already belongs to another client. Choose another one.")
+        created = result[0]
         if not created:
             conn.execute(END_ALL_SESSIONS_QUERY, (args.username,))
 

@@ -63,7 +63,7 @@ playwright install --with-deps chromium   # the crawler opens pages in a headles
 
 ### 2. Create the database (once)
 
-As a Postgres superuser, run the line below. It creates a `widgetbot` user and database, turns on pgvector, and asks you to choose a password for the `widgetbot` user:
+As a Postgres superuser, run the line below. It creates the `widgetbot` database, turns on pgvector, and creates two users, asking you to choose a password for each: `widgetbot` owns the tables and is only used for migrations; `widgetbot_app` is what the app uses, and can read and write rows but can't change or drop tables:
 
 ```bash
 psql -h localhost -U postgres -f migrations/db_setup.sql
@@ -75,7 +75,7 @@ psql -h localhost -U postgres -f migrations/db_setup.sql
 cp .env.example .env
 ```
 
-Open `.env` and fill in `DATABASE_URL` (with the password from step 2), `GROQ_API_KEY` and `PUBLIC_BASE_URL` (`http://127.0.0.1:8000` for a local test). Each setting is explained in the file. Keep `.env` private and out of version control.
+Open `.env` and fill in `DATABASE_URL` and `MIGRATIONS_DATABASE_URL` (with the passwords from step 2), `GROQ_API_KEY` and `PUBLIC_BASE_URL` (`http://127.0.0.1:8000` for a local test). Each setting is explained in the file. Keep `.env` private and out of version control.
 
 ### 4. Set up and start
 
@@ -165,7 +165,22 @@ The proxy must only listen on `127.0.0.1`. For a quick local test without it, se
 
 ## Database changes
 
-Schema changes live in `migrations/versions/` as numbered SQL files. To apply new ones after an update, run `python -m migrations.migrate` (also part of `setup.sh`). Each file runs once, in its own transaction. Never edit a file that has already been applied; add a new one instead.
+Schema changes live in `migrations/versions/` as numbered SQL files. To apply new ones after an update, run `python -m migrations.migrate` (also part of `setup.sh`). Each file runs once. All pending files run in a single transaction, so if one fails none of them is applied and the database is left as it was. Never edit a file that has already been applied; add a new one instead.
+
+Migrations log in as the table owner (`MIGRATIONS_DATABASE_URL`); the app uses `widgetbot_app`, which can't change tables. An install set up before the two users existed keeps working with one `DATABASE_URL`. To split it, run this once as a superuser, choose the password, then set both URLs in `.env`:
+
+```sql
+\c widgetbot
+CREATE ROLE widgetbot_app LOGIN;
+GRANT CONNECT ON DATABASE widgetbot TO widgetbot_app;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO widgetbot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO widgetbot_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO widgetbot_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE widgetbot IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO widgetbot_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE widgetbot IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO widgetbot_app;
+\password widgetbot_app
+```
 
 ## Licence
 
