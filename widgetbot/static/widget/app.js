@@ -124,8 +124,6 @@
 
     // --- Bot reply rendering ---
 
-    // Bot replies may contain links and light formatting. Everything else is stripped, so a reply
-    // (or prompt-injected page content) can never run script inside the widget.
     // Runs of lines starting with "* " or "- " become a <ul>; the list's own margins replace the blank lines around it.
     // Same rule as the dashboard's botHtml (static/admin/format.js).
     function bulletLists(text) {
@@ -139,6 +137,9 @@
             .replace(/(<\/ul>)\n+/g, '$1');
     }
 
+    // Bot replies may contain links and light formatting. Everything else is stripped, so a reply
+    // (or prompt-injected page content) can never run script inside the widget.
+    // The server cleans replies too (core/html_safety.py); this is the browser's own layer.
     function renderBotContent(text) {
         var html = bulletLists(String(text || '')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -152,7 +153,17 @@
             RETURN_DOM_FRAGMENT: true
         });
 
+        // Only links may carry a class (action-btn), so a reply can't borrow the widget's own styles
+        // to imitate the callback form or a visitor message
+        fragment.querySelectorAll('[class]').forEach(function (node) {
+            if (node.nodeName !== 'A') node.removeAttribute('class');
+        });
         fragment.querySelectorAll('a').forEach(function (a) {
+            // A link whose address was removed (not https, mailto or tel) shows as plain text
+            if (!a.getAttribute('href')) {
+                a.replaceWith(document.createTextNode(a.textContent));
+                return;
+            }
             a.target = '_blank';
             a.rel = 'noopener noreferrer';
             if (a.classList.contains('action-btn')) {
@@ -558,7 +569,7 @@
         } else {
             el.brandMark.appendChild(make('span', 'brand-name', config.botName));
         }
-        if (config.privacyUrl) {
+        if (config.privacyUrl && /^https?:\/\//i.test(config.privacyUrl)) {
             var link = make('a', null, 'Privacy');
             link.href = config.privacyUrl;
             link.target = '_blank';
@@ -600,7 +611,7 @@
     });
 
     window.addEventListener('message', function (e) {
-        if (e.source !== window.parent || !e.data || !e.data.widgetbot) return;
+        if (e.source !== window.parent || e.origin !== hostOrigin || !e.data || !e.data.widgetbot) return;
         document.documentElement.classList.toggle('fullscreen', !!e.data.fullscreen);
         // Focus the input on desktop only; on phones it would pop the keyboard over the welcome screen
         if (e.data.widgetbot === 'opened' && window.matchMedia('(pointer: fine)').matches) el.input.focus();
