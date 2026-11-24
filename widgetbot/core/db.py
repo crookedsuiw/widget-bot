@@ -1,4 +1,6 @@
 import os
+import re
+import threading
 import time
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -159,6 +161,14 @@ TOUCH_CONVERSATION_QUERY = """
     UPDATE conversations SET last_message_at = now() WHERE id = %s
 """
 
+# Visitor replies the AI actually generated (token usage recorded) for the client in the last 24 hours.
+# Replies refused by the cap have no usage, so they don't keep the cap shut. Params: (client_id,)
+AI_REPLIES_TODAY_QUERY = """
+    SELECT count(*) AS n FROM messages m JOIN conversations c ON c.id = m.conversation_id
+    WHERE c.client_id = %s AND m.role = 'bot' AND m.prompt_tokens IS NOT NULL
+      AND m.created_at > now() - interval '24 hours'
+"""
+
 # --- Connection pool (used by the web app; scripts use psycopg.connect directly) ---
 
 pool = None
@@ -179,16 +189,36 @@ def open_pool():
 
 _client_cache = {}    # widget_key or "slug:<slug>" -> (expires_at, client)
 _settings_cache = {}  # client_id -> (expires_at, settings)
+_cache_lock = threading.Lock()
+CACHE_MAX_ENTRIES = 1000
+
+# What secrets.token_urlsafe() produces (seed.py); anything else can't be a widget key
+WIDGET_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{16,64}")
 
 def _cached(cache, key, loader):
-    hit = cache.get(key)
-    if hit and hit[0] > time.monotonic():
-        return hit[1]
+    """Only found rows are kept: misses (e.g. made-up widget keys) would otherwise fill memory."""
+    with _cache_lock:
+        hit = cache.get(key)
+        if hit and hit[0] > time.monotonic():
+            return hit[1]
     value = loader()
-    cache[key] = (time.monotonic() + CACHE_TTL_SECONDS, value)
+    with _cache_lock:
+        if value is None:
+            cache.pop(key, None)
+            return None
+        now = time.monotonic()
+        if len(cache) >= CACHE_MAX_ENTRIES:
+            for stale in [k for k, (expires, _) in cache.items() if expires <= now]:
+                del cache[stale]
+            if len(cache) >= CACHE_MAX_ENTRIES:
+                cache.clear()
+        cache[key] = (now + CACHE_TTL_SECONDS, value)
     return value
 
 def get_client(widget_key):
+    if not WIDGET_KEY_PATTERN.fullmatch(widget_key or ""):
+        return None
+
     def load():
         with pool.connection() as conn:
             return conn.execute(GET_CLIENT_BY_KEY_QUERY, (widget_key,)).fetchone()
@@ -224,8 +254,9 @@ def get_client_by_id(client_id):
 
 def invalidate_client(client):
     """Called after the Settings page changes the client row, so the widget and alerts use it now."""
-    for key in (client["widget_key"], f"slug:{client['slug']}", f"id:{client['id']}"):
-        _client_cache.pop(key, None)
+    with _cache_lock:
+        for key in (client["widget_key"], f"slug:{client['slug']}", f"id:{client['id']}"):
+            _client_cache.pop(key, None)
 
 def get_active_settings(client_id):
     def load():
@@ -235,7 +266,8 @@ def get_active_settings(client_id):
 
 def invalidate_settings(client_id):
     """Called when the live prompt setting or FAQ threshold changes, so visitors get it now instead of after the cache expires."""
-    _settings_cache.pop(client_id, None)
+    with _cache_lock:
+        _settings_cache.pop(client_id, None)
 
 def get_faq_threshold(client_id):
     with pool.connection() as conn:
@@ -255,6 +287,10 @@ def retrieve_chunks(client_id, query_embedding, top_k):
                                                   "top_k": top_k}).fetchall()
 
 # --- Conversations ---
+
+def count_ai_replies_today(client_id):
+    with pool.connection() as conn:
+        return conn.execute(AI_REPLIES_TODAY_QUERY, (client_id,)).fetchone()["n"]
 
 def get_or_create_conversation(client_id, conversation_id, origin):
     with pool.connection() as conn:
