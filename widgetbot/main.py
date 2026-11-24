@@ -67,7 +67,34 @@ async def lifespan(app):
     for task in tasks:
         task.cancel()
 
+class SecurityHeaders:
+    """Adds browser hardening headers to every response (plain ASGI, so streamed responses aren't buffered)."""
+
+    # Files in static/brand/ are customer uploads (logos). Opened directly, an SVG could otherwise run script on
+    # this origin, which is also the dashboard's.
+    BRAND_CSP = b"default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        is_brand = scope["path"].startswith("/static/brand/")
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers += [(b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"same-origin")]
+                if is_brand:
+                    headers.append((b"content-security-policy", self.BRAND_CSP))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(SecurityHeaders)
 # Requests addressed to any other host name are refused (400), so the Host header can't be forged
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS, www_redirect=False)
 app.include_router(admin.api)     # /admin/api/* must be registered before the /admin/{page} catch-all
