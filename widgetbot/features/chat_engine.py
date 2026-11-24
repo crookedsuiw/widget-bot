@@ -67,7 +67,7 @@ def semantic_router(client_id, settings, message: str, user_embedding):
     faq = db.match_faq(client_id, user_embedding)
     if faq:
         if faq["similarity"] >= settings["faq_threshold"]:
-            print(f"[DEBUG] Matched FAQ '{faq['question']}' with similarity {faq['similarity']:.2f}")
+            print(f"[DEBUG] Matched FAQ {faq['id']} with similarity {faq['similarity']:.2f}")
 
             answers = faq["answers"]
             idx = faq_counters.get(faq["id"], 0) % len(answers)
