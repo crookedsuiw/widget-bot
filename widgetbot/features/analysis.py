@@ -9,7 +9,6 @@ import os
 import re
 from features import chat_engine
 from core import db
-from core import text_safety
 
 # A conversation is analysed once it has been quiet this long (and again if it continues later)
 ANALYSIS_IDLE_MINUTES = int(os.environ.get("ANALYSIS_IDLE_MINUTES", "30"))
@@ -84,7 +83,7 @@ def _parse_analysis(text):
     except json.JSONDecodeError:
         return None
     return {
-        "summary": text_safety.clean_line(str(data.get("summary") or ""))[:600] or None,
+        "summary": str(data.get("summary") or "").strip()[:600] or None,
         "intent": data.get("intent") if data.get("intent") in INTENTS else "other",
         "interest_level": data.get("interest_level") if data.get("interest_level") in INTEREST_LEVELS else None,
     }

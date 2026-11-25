@@ -6,12 +6,10 @@ import os
 import re
 import signal
 import smtplib
-import unicodedata
 from email.message import EmailMessage
 from features import analysis
 from core import config
 from core import db
-from core import text_safety
 
 DEFAULT_COUNTRY_CODE = "+91"
 MAX_NAME_CHARS = 80
@@ -69,12 +67,9 @@ class InvalidPhone(ValueError):
 def normalize_phone(raw):
     """Accepts an Indian mobile (with or without 0/91/+91) or any +<country><number>. Returns +E.164."""
     digits = re.sub(r"[\s\-().]", "", raw or "")
-    # Digits typed in another script (e.g. Arabic-Indic) become 0-9; then only ASCII digits are accepted,
-    # so what is stored is always dialable as written
-    digits = "".join(str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None else c for c in digits)
-    if re.fullmatch(r"\+[0-9]{8,15}", digits):
+    if re.fullmatch(r"\+\d{8,15}", digits):
         return digits
-    match = re.fullmatch(r"(?:0|91)?([6-9][0-9]{9})", digits)
+    match = re.fullmatch(r"(?:0|91)?([6-9]\d{9})", digits)
     if match:
         return DEFAULT_COUNTRY_CODE + match.group(1)
     raise InvalidPhone("Please enter a valid phone number.")
@@ -184,15 +179,12 @@ def send_test_email(client, address):
     """Blocking; the Settings page's "Send test email". Returns None when sent, else the error text."""
     if not smtp_configured():
         return "Email sending isn't set up on the server (SMTP_HOST and SMTP_FROM in .env)."
-    try:
-        msg = EmailMessage()
-        msg["Subject"] = f"Test: callback alerts for {text_safety.clean_line(client['name'])}"
-        msg["From"] = SMTP_FROM
-        msg["To"] = address
-        msg.set_content(f"This is a test from the {client['name']} dashboard. "
-                        "New callback requests from the chat widget will be emailed to this address.\n")
-    except ValueError as e:  # A header the email library refuses (e.g. a line break in an address)
-        return str(e)
+    msg = EmailMessage()
+    msg["Subject"] = f"Test: callback alerts for {client['name']}"
+    msg["From"] = SMTP_FROM
+    msg["To"] = address
+    msg.set_content(f"This is a test from the {client['name']} dashboard. "
+                    "New callback requests from the chat widget will be emailed to this address.\n")
     return _send(msg)
 
 def send_lead_email(client, lead, dashboard_url):
@@ -209,14 +201,9 @@ def send_lead_email(client, lead, dashboard_url):
     transcript = "\n".join(f"{'Visitor' if r['role'] == 'user' else 'Assistant'}: {_plain(r['content'])}" for r in rows)
 
     msg = EmailMessage()
-    try:
-        # Names are cleaned when saved; cleaned again here for leads stored before that
-        msg["Subject"] = f"New callback request: {text_safety.clean_line(lead['name'] or lead['phone'])}"
-        msg["From"] = SMTP_FROM
-        msg["To"] = client["alert_email"]
-    except ValueError as e:  # A header the email library refuses
-        print(f"[ERROR] Lead email not sent: {e}")
-        return False
+    msg["Subject"] = f"New callback request: {lead['name'] or lead['phone']}"
+    msg["From"] = SMTP_FROM
+    msg["To"] = client["alert_email"]
     msg.set_content(
         f"A visitor asked {client['name']}'s team to call them back.\n\n"
         f"Name: {lead['name'] or '(not given)'}\n"

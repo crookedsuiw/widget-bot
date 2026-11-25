@@ -11,11 +11,10 @@ from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import BaseModel, Field, StringConstraints
 from core import config
 from core import db
 from core import limits
-from core import text_safety
 from features import (
     chat_engine,
     leads,
@@ -90,8 +89,6 @@ class ChatRequest(BaseModel):
     widget_key: WidgetKey | None = None
     origin: str | None = Field(default=None, max_length=200)  # Website the widget is embedded on (sent by widget.js)
 
-    _clean_message = field_validator("message")(text_safety.non_empty(text_safety.clean_multiline))
-
 class SummariesRequest(BaseModel):
     widget_key: WidgetKey
     ids: list[SessionId] = Field(max_length=MAX_HISTORY_IDS)
@@ -106,8 +103,6 @@ class LeadRequest(BaseModel):
     name: str = Field(default="", max_length=leads.MAX_NAME_CHARS)
     phone: str = Field(min_length=6, max_length=25)
     consent: Literal[True]  # The form can't be sent without ticking the consent box
-
-    _clean_name = field_validator("name")(text_safety.clean_line)
 
 # Changes whenever a widget asset changes, so browsers re-fetch them (appended as ?v=)
 def _asset_version():

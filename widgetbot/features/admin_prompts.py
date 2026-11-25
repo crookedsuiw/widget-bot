@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field, field_validator
 from core import auth
 from features import chat_engine
 from core import db
-from core import text_safety
 
 api = APIRouter(prefix="/admin/api/prompts", dependencies=[Depends(auth.require_account)])
 
@@ -164,12 +163,8 @@ class ProfileCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     copy_from: int | None = None  # None = copy the live setting
 
-    _clean_name = field_validator("name")(text_safety.non_empty(text_safety.clean_line))
-
 class ProfileRename(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-
-    _clean_name = field_validator("name")(text_safety.non_empty(text_safety.clean_line))
 
 class TestTurn(BaseModel):
     role: Literal["user", "bot"]

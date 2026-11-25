@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from core import auth
 from core import db
-from core import text_safety
 from features import leads
 from features import retention
 
@@ -56,15 +55,8 @@ class BusinessBody(BaseModel):
 
     @field_validator("name", "consent_text")
     @classmethod
-    def clean(cls, value):
-        return text_safety.clean_line(value)
-
-    @field_validator("name")
-    @classmethod
-    def required(cls, value):
-        if not value:
-            raise ValueError("Enter the business name")
-        return value
+    def strip(cls, value):
+        return value.strip()
 
 class AlertsBody(BaseModel):
     alert_email: str = Field(default="", max_length=200)  # Empty = no emails
