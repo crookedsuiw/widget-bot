@@ -10,8 +10,8 @@ from core import limits
 
 SESSION_COOKIE = "widgetbot_admin"
 SESSION_DAYS = 7
-# The cookie is only sent over HTTPS unless COOKIE_SECURE=0 (browsers still accept it on http://localhost)
-COOKIE_SECURE = os.environ.get("COOKIE_SECURE") != "0"
+# Set COOKIE_SECURE=1 when served over HTTPS so the cookie is never sent in plain text
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE") == "1"
 
 MIN_PASSWORD_LENGTH = 10
 LOGIN_MAX_FAILURES = 5                 # per visitor (IPv4 address or IPv6 /64) ...
