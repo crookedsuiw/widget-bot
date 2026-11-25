@@ -160,7 +160,7 @@ def parse_signals(text):
         print(f"[WARN] Possible unrecognised signal tag in reply: {text[:80]!r} ... {text[-80:]!r}")
     return text, callback_count > 0, no_answer_count > 0
 
-def answer(client_id, settings, user_message, history, allow_ai=True):
+def answer(client_id, settings, user_message, history):
     """Produces the bot reply for one visitor message. Nothing is stored here.
 
     Returns a dict: tier, text, sources (most relevant first), usage, error, faq_id,
@@ -177,11 +177,6 @@ def answer(client_id, settings, user_message, history, allow_ai=True):
     if tier == 1:
         print(f"[ACTION] Returning preprocessed FAQ answer...")
         result["text"] = preprocessed
-        return result
-
-    if not allow_ai:
-        # The client's daily AI reply cap is reached (main.py); FAQ answers above still work
-        result.update(text=GENERATION_FAILED_MESSAGE, sources=[], error="Daily AI reply limit reached")
         return result
 
     context = None

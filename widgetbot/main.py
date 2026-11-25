@@ -14,7 +14,6 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, StringConstraints
 from core import config
 from core import db
-from core import limits
 from features import (
     chat_engine,
     leads,
@@ -40,8 +39,6 @@ DEFAULT_CLIENT_SLUG = os.environ.get("DEFAULT_CLIENT_SLUG")
 MAX_MESSAGE_CHARS = 1000      # Longer messages are rejected before any tokens are spent
 RATE_LIMIT_PER_MINUTE = 20    # /chat calls per visitor IP
 RATE_LIMIT_PER_DAY = 200
-# AI replies per client per 24 hours, whoever asks; FAQ answers don't count. 0 = no cap.
-MAX_DAILY_AI_REPLIES = int(os.environ.get("MAX_DAILY_AI_REPLIES_PER_CLIENT", "2000"))
 MAX_HISTORY_IDS = 20          # Conversations the widget remembers per browser
 
 WIDGET_DIR = "static/widget"
@@ -113,15 +110,18 @@ def _asset_version():
 
 ASSET_VERSION = _asset_version()
 
-# Per visitor (IPv4 address or IPv6 /64), kept in memory; see core/limits.py
-_chat_log = limits.SlidingWindow(86400)
+# In-memory sliding window per IP. Fine for a single server process; move to Postgres/Redis if scaled out.
+_chat_log = defaultdict(deque)  # ip -> monotonic timestamps of /chat calls in the last 24h
 
 def check_rate_limit(ip):
-    key = limits.visitor_key(ip)
-    if (_chat_log.count(key, within=60) >= RATE_LIMIT_PER_MINUTE
-            or _chat_log.count(key) >= RATE_LIMIT_PER_DAY):
+    now = time.monotonic()
+    log = _chat_log[ip]
+    while log and now - log[0] > 86400:
+        log.popleft()
+    last_minute = sum(1 for t in log if now - t < 60)
+    if last_minute >= RATE_LIMIT_PER_MINUTE or len(log) >= RATE_LIMIT_PER_DAY:
         raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
-    _chat_log.add(key)
+    log.append(now)
 
 def default_client():
     try:
@@ -251,8 +251,7 @@ async def chat(request: ChatRequest, http_request: Request):
     print(f"[START] Processing new message: '{user_message}'")
     print(f"[ACTION] Running Semantic Router...")
 
-    allow_ai = MAX_DAILY_AI_REPLIES <= 0 or db.count_ai_replies_today(client_id) < MAX_DAILY_AI_REPLIES
-    result = chat_engine.answer(client_id, settings, user_message, history, allow_ai=allow_ai)
+    result = chat_engine.answer(client_id, settings, user_message, history)
 
     end_time = time.time()
     elapsed = end_time - start_time
