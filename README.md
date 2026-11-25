@@ -63,7 +63,7 @@ playwright install --with-deps chromium   # the crawler opens pages in a headles
 
 ### 2. Create the database (once)
 
-As a Postgres superuser, run the line below. It creates a `widgetbot` user and database, turns on pgvector, and asks you to choose a password for the `widgetbot` user:
+As a Postgres superuser, run the line below. It creates the `widgetbot` database, turns on pgvector, and creates two users, asking you to choose a password for each: `widgetbot` owns the tables and is only used for migrations; `widgetbot_app` is what the app uses, and can read and write rows but can't change or drop tables:
 
 ```bash
 psql -h localhost -U postgres -f migrations/db_setup.sql
@@ -75,7 +75,7 @@ psql -h localhost -U postgres -f migrations/db_setup.sql
 cp .env.example .env
 ```
 
-Open `.env` and fill in `DATABASE_URL` (with the password from step 2) and `GROQ_API_KEY`. Each setting is explained in the file. Keep `.env` private and out of version control.
+Open `.env` and fill in `DATABASE_URL` and `MIGRATIONS_DATABASE_URL` (with the passwords from step 2), `GROQ_API_KEY` and `PUBLIC_BASE_URL` (`http://127.0.0.1:8000` for a local test). Each setting is explained in the file. Keep `.env` private and out of version control.
 
 ### 4. Set up and start
 
@@ -125,17 +125,62 @@ Browsers pick up the changes after a restart (`./run.sh`). The widget's file ver
 
 ## Going live checklist
 
-- Serve the app over HTTPS behind a reverse proxy (nginx, Caddy), and set `COOKIE_SECURE=1` in `.env`.
+- Serve the app over HTTPS behind a reverse proxy (nginx, Caddy) on the same machine, and keep `COOKIE_SECURE=1` in `.env`. In the proxy:
+  - pass the visitor's address on (nginx: `proxy_set_header X-Forwarded-For $remote_addr;`). Rate limits count per visitor address; uvicorn trusts this header only from `127.0.0.1`. If the proxy runs on another machine, add `--forwarded-allow-ips <proxy-ip>` to `run.sh` (never `*`, or anyone can fake their address).
+  - limit request bodies (nginx: `client_max_body_size 64k;`)
+  - send HSTS (nginx: `add_header Strict-Transport-Security "max-age=31536000" always;`)
+- Set `PUBLIC_BASE_URL` to the live address, e.g. `https://bot.example.com`. The proxy must pass the original host name on (nginx: `proxy_set_header Host $host;`); requests for any other host name are refused.
 - Use a strong database password. Keep it only in `.env`.
 - Run a single worker. `run.sh` already does this; don't add `--reload` or extra workers. Rate limits, login lockouts, live lead alerts and crawls are kept in memory.
+- Run the crawler proxy and set `CRAWLER_PROXY_URL` (see below). Crawling stays off until it is set.
 - Set the `SMTP_*` settings if your team should get lead emails.
 - Check that `allowed_origins` matches your live domain exactly.
 - Back up PostgreSQL regularly. It holds all settings, FAQs, chats, leads and knowledge.
 - Keep `run.sh` running under a process manager (systemd, supervisor) so it restarts after a crash or reboot.
 
+## Crawler proxy
+
+The crawler opens pages in a real browser on your server. A crawled page (or a page it redirects to) could
+otherwise make that browser read services that are only reachable from the server: the database admin, other
+apps on `localhost`, your private network, or the cloud provider's metadata address. So every crawler request
+goes through a proxy that refuses private and internal addresses.
+
+Any filtering forward proxy works. [smokescreen](https://github.com/stripe/smokescreen) blocks private, loopback
+and link-local addresses by default:
+
+```bash
+smokescreen --listen-ip=127.0.0.1 --listen-port=4750
+```
+
+Then set `CRAWLER_PROXY_URL=http://127.0.0.1:4750` in `.env`, and keep the proxy running under the same process
+manager as `run.sh`. Check it before going live; the first command must be refused, the second must work:
+
+```bash
+curl -x http://127.0.0.1:4750 http://127.0.0.1:8000/      # refused by the proxy
+curl -x http://127.0.0.1:4750 -I https://example.com/      # works
+```
+
+The proxy must only listen on `127.0.0.1`. For a quick local test without it, set `CRAWLER_ALLOW_DIRECT=1`
+(never on a server).
+
 ## Database changes
 
-Schema changes live in `migrations/versions/` as numbered SQL files. To apply new ones after an update, run `python -m migrations.migrate` (also part of `setup.sh`). Each file runs once, in its own transaction. Never edit a file that has already been applied; add a new one instead.
+Schema changes live in `migrations/versions/` as numbered SQL files. To apply new ones after an update, run `python -m migrations.migrate` (also part of `setup.sh`). Each file runs once. All pending files run in a single transaction, so if one fails none of them is applied and the database is left as it was. Never edit a file that has already been applied; add a new one instead.
+
+Migrations log in as the table owner (`MIGRATIONS_DATABASE_URL`); the app uses `widgetbot_app`, which can't change tables. An install set up before the two users existed keeps working with one `DATABASE_URL`. To split it, run this once as a superuser, choose the password, then set both URLs in `.env`:
+
+```sql
+\c widgetbot
+CREATE ROLE widgetbot_app LOGIN;
+GRANT CONNECT ON DATABASE widgetbot TO widgetbot_app;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO widgetbot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO widgetbot_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO widgetbot_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE widgetbot IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO widgetbot_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE widgetbot IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO widgetbot_app;
+\password widgetbot_app
+```
 
 ## Licence
 

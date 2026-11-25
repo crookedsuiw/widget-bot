@@ -8,9 +8,10 @@ from typing import Annotated
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg.errors import UniqueViolation
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints, field_validator, model_validator
 from core import auth
 from core import db
+from core import text_safety
 from core.embeddings import get_ov_embedding
 
 api = APIRouter(prefix="/admin/api/faqs", dependencies=[Depends(auth.require_account)])
@@ -101,8 +102,10 @@ MATCH_QUERY = """
 
 # --- Request bodies ---
 
-Wording = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
-Answer = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+Wording = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300),
+                    AfterValidator(text_safety.non_empty(text_safety.clean_line))]
+Answer = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+                   AfterValidator(text_safety.non_empty(text_safety.clean_multiline))]
 
 class FaqBody(BaseModel):
     questions: list[Wording] = Field(min_length=1, max_length=20)

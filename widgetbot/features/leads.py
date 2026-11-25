@@ -1,13 +1,17 @@
 """Callback requests from the widget: validation, storage and manager alerts (dashboard push + email)."""
 import asyncio
+import html
 import json
 import os
 import re
 import signal
 import smtplib
+import unicodedata
 from email.message import EmailMessage
 from features import analysis
+from core import config
 from core import db
+from core import text_safety
 
 DEFAULT_COUNTRY_CODE = "+91"
 MAX_NAME_CHARS = 80
@@ -20,6 +24,8 @@ SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
 SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
 EMAIL_TRANSCRIPT_MESSAGES = 30
+# A conversation's callback request alerts the manager again only after this long
+ALERT_GAP_MINUTES = 15
 
 # Re-submitting from the same conversation updates the lead and alerts again.
 # Params: (client_id, conversation_id, name, phone, consent_text)
@@ -29,6 +35,18 @@ UPSERT_LEAD_QUERY = """
     ON CONFLICT (conversation_id) DO UPDATE
         SET name = EXCLUDED.name, phone = EXCLUDED.phone, consent_text = EXCLUDED.consent_text,
             consent_at = now(), seen_at = NULL
+    RETURNING id, created_at
+"""
+
+# A conversation's lead, locked while it is updated. Params: (alert_gap_minutes, conversation_id)
+LOCK_LEAD_QUERY = """
+    SELECT consent_at > now() - make_interval(mins => %s) AS recent FROM leads WHERE conversation_id = %s FOR UPDATE
+"""
+
+# A quick re-send (e.g. a corrected number): updated without marking it new again. Params: (name, phone, consent_text, conversation_id)
+UPDATE_RECENT_LEAD_QUERY = """
+    UPDATE leads SET name = %s, phone = %s, consent_text = %s, consent_at = now()
+    WHERE conversation_id = %s
     RETURNING id, created_at
 """
 
@@ -51,9 +69,12 @@ class InvalidPhone(ValueError):
 def normalize_phone(raw):
     """Accepts an Indian mobile (with or without 0/91/+91) or any +<country><number>. Returns +E.164."""
     digits = re.sub(r"[\s\-().]", "", raw or "")
-    if re.fullmatch(r"\+\d{8,15}", digits):
+    # Digits typed in another script (e.g. Arabic-Indic) become 0-9; then only ASCII digits are accepted,
+    # so what is stored is always dialable as written
+    digits = "".join(str(unicodedata.decimal(c)) if unicodedata.decimal(c, None) is not None else c for c in digits)
+    if re.fullmatch(r"\+[0-9]{8,15}", digits):
         return digits
-    match = re.fullmatch(r"(?:0|91)?([6-9]\d{9})", digits)
+    match = re.fullmatch(r"(?:0|91)?([6-9][0-9]{9})", digits)
     if match:
         return DEFAULT_COUNTRY_CODE + match.group(1)
     raise InvalidPhone("Please enter a valid phone number.")
@@ -66,12 +87,23 @@ def consent_text(client):
     return client.get("consent_text") or default_consent_text(client)
 
 def save_lead(client, conversation_id, name, phone):
-    """Stores (or updates) the lead. Raises InvalidPhone. Returns the lead row (id, created_at)."""
+    """Stores (or updates) the lead. Raises InvalidPhone.
+
+    Returns (lead row with id and created_at, alert). alert is False when the same conversation already sent a
+    callback request in the last ALERT_GAP_MINUTES: the details are updated, but the manager isn't alerted,
+    summarised for or emailed again, so re-sending the form can't flood them or spend AI tokens.
+    """
     phone = normalize_phone(phone)
     name = (name or "").strip()[:MAX_NAME_CHARS] or None
-    with db.pool.connection() as conn:
-        return conn.execute(UPSERT_LEAD_QUERY,
-                            (client["id"], conversation_id, name, phone, consent_text(client))).fetchone()
+    with db.pool.connection() as conn, conn.transaction():
+        existing = conn.execute(LOCK_LEAD_QUERY, (ALERT_GAP_MINUTES, conversation_id)).fetchone()
+        if existing and existing["recent"]:
+            row = conn.execute(UPDATE_RECENT_LEAD_QUERY,
+                               (name, phone, consent_text(client), conversation_id)).fetchone()
+            return row, False
+        row = conn.execute(UPSERT_LEAD_QUERY,
+                           (client["id"], conversation_id, name, phone, consent_text(client))).fetchone()
+        return row, True
 
 # --- Live push to open dashboards (Server-Sent Events) ---
 # In-memory, so it only reaches dashboards connected to this server process.
@@ -127,7 +159,7 @@ def publish(client_id, event_type, data):
 # --- Email ---
 
 def _plain(text):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text or ""))).strip()
 
 def smtp_configured():
     return bool(SMTP_HOST and SMTP_FROM)
@@ -152,12 +184,15 @@ def send_test_email(client, address):
     """Blocking; the Settings page's "Send test email". Returns None when sent, else the error text."""
     if not smtp_configured():
         return "Email sending isn't set up on the server (SMTP_HOST and SMTP_FROM in .env)."
-    msg = EmailMessage()
-    msg["Subject"] = f"Test: callback alerts for {client['name']}"
-    msg["From"] = SMTP_FROM
-    msg["To"] = address
-    msg.set_content(f"This is a test from the {client['name']} dashboard. "
-                    "New callback requests from the chat widget will be emailed to this address.\n")
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = f"Test: callback alerts for {text_safety.clean_line(client['name'])}"
+        msg["From"] = SMTP_FROM
+        msg["To"] = address
+        msg.set_content(f"This is a test from the {client['name']} dashboard. "
+                        "New callback requests from the chat widget will be emailed to this address.\n")
+    except ValueError as e:  # A header the email library refuses (e.g. a line break in an address)
+        return str(e)
     return _send(msg)
 
 def send_lead_email(client, lead, dashboard_url):
@@ -174,9 +209,14 @@ def send_lead_email(client, lead, dashboard_url):
     transcript = "\n".join(f"{'Visitor' if r['role'] == 'user' else 'Assistant'}: {_plain(r['content'])}" for r in rows)
 
     msg = EmailMessage()
-    msg["Subject"] = f"New callback request: {lead['name'] or lead['phone']}"
-    msg["From"] = SMTP_FROM
-    msg["To"] = client["alert_email"]
+    try:
+        # Names are cleaned when saved; cleaned again here for leads stored before that
+        msg["Subject"] = f"New callback request: {text_safety.clean_line(lead['name'] or lead['phone'])}"
+        msg["From"] = SMTP_FROM
+        msg["To"] = client["alert_email"]
+    except ValueError as e:  # A header the email library refuses
+        print(f"[ERROR] Lead email not sent: {e}")
+        return False
     msg.set_content(
         f"A visitor asked {client['name']}'s team to call them back.\n\n"
         f"Name: {lead['name'] or '(not given)'}\n"
@@ -197,7 +237,7 @@ def send_lead_email(client, lead, dashboard_url):
 
 # --- After a lead is saved ---
 
-async def process_new_lead(client, lead_id, conversation_id, name, phone, created_at, base_url):
+async def process_new_lead(client, lead_id, conversation_id, name, phone, created_at):
     """Summarise the chat, then alert open dashboards and email the client. Runs as a background task."""
     result = await asyncio.to_thread(analysis.summarize_conversation, client["id"], conversation_id, True)
     summary = result["summary"] if result else None
@@ -212,5 +252,5 @@ async def process_new_lead(client, lead_id, conversation_id, name, phone, create
     publish(client["id"], "lead", lead)
 
     client_full = db.get_client_by_id(client["id"])
-    dashboard_url = f"{base_url.rstrip('/')}/admin/chat-history/{conversation_id}"
+    dashboard_url = f"{config.PUBLIC_BASE_URL}/admin/chat-history/{conversation_id}"
     await asyncio.to_thread(send_lead_email, client_full, lead, dashboard_url)

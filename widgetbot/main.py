@@ -1,3 +1,4 @@
+import html
 import os
 import uuid
 import time
@@ -6,12 +7,17 @@ import asyncio
 import hashlib
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from typing import Literal
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from typing import Annotated, Literal
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from pydantic import BaseModel, Field, StringConstraints, field_validator
+from core import config
 from core import db
+from core import limits
+from core import net_safety
+from core import text_safety
 from features import (
     chat_engine,
     leads,
@@ -37,6 +43,9 @@ DEFAULT_CLIENT_SLUG = os.environ.get("DEFAULT_CLIENT_SLUG")
 MAX_MESSAGE_CHARS = 1000      # Longer messages are rejected before any tokens are spent
 RATE_LIMIT_PER_MINUTE = 20    # /chat calls per visitor IP
 RATE_LIMIT_PER_DAY = 200
+LEAD_LIMIT_PER_HOUR = 5       # Callback form sends per visitor
+# AI replies per client per 24 hours, whoever asks; FAQ answers don't count. 0 = no cap.
+MAX_DAILY_AI_REPLIES = int(os.environ.get("MAX_DAILY_AI_REPLIES_PER_CLIENT", "2000"))
 MAX_HISTORY_IDS = 20          # Conversations the widget remembers per browser
 
 WIDGET_DIR = "static/widget"
@@ -58,7 +67,36 @@ async def lifespan(app):
     for task in tasks:
         task.cancel()
 
+class SecurityHeaders:
+    """Adds browser hardening headers to every response (plain ASGI, so streamed responses aren't buffered)."""
+
+    # Files in static/brand/ are customer uploads (logos). Opened directly, an SVG could otherwise run script on
+    # this origin, which is also the dashboard's.
+    BRAND_CSP = b"default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        is_brand = scope["path"].startswith("/static/brand/")
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers += [(b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"same-origin")]
+                if is_brand:
+                    headers.append((b"content-security-policy", self.BRAND_CSP))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(SecurityHeaders)
+# Requests addressed to any other host name are refused (400), so the Host header can't be forged
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS, www_redirect=False)
 app.include_router(admin.api)     # /admin/api/* must be registered before the /admin/{page} catch-all
 app.include_router(admin_overview.api)
 app.include_router(admin_prompts.api)
@@ -71,26 +109,34 @@ app.include_router(admin.router)
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Every visitor-sent string has a length cap, so no request can make the server hold or store a huge value
+SessionId = Annotated[str, StringConstraints(max_length=64)]   # A UUID is 36 characters
+WidgetKey = Annotated[str, StringConstraints(max_length=64)]
+
 class ChatRequest(BaseModel):
-    session_id: str = ""
+    session_id: SessionId = ""
     message: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
-    widget_key: str | None = None
-    origin: str | None = None  # Website the widget is embedded on (sent by widget.js)
+    widget_key: WidgetKey | None = None
+    origin: str | None = Field(default=None, max_length=200)  # Website the widget is embedded on (sent by widget.js)
+
+    _clean_message = field_validator("message")(text_safety.non_empty(text_safety.clean_multiline))
 
 class SummariesRequest(BaseModel):
-    widget_key: str
-    ids: list[str] = Field(max_length=MAX_HISTORY_IDS)
+    widget_key: WidgetKey
+    ids: list[SessionId] = Field(max_length=MAX_HISTORY_IDS)
 
 class FeedbackRequest(BaseModel):
-    session_id: str
+    session_id: SessionId
     value: Literal[1, -1, 0]  # 0 clears the rating
 
 class LeadRequest(BaseModel):
-    widget_key: str
-    session_id: str
+    widget_key: WidgetKey
+    session_id: SessionId
     name: str = Field(default="", max_length=leads.MAX_NAME_CHARS)
     phone: str = Field(min_length=6, max_length=25)
     consent: Literal[True]  # The form can't be sent without ticking the consent box
+
+    _clean_name = field_validator("name")(text_safety.clean_line)
 
 # Changes whenever a widget asset changes, so browsers re-fetch them (appended as ?v=)
 def _asset_version():
@@ -102,18 +148,23 @@ def _asset_version():
 
 ASSET_VERSION = _asset_version()
 
-# In-memory sliding window per IP. Fine for a single server process; move to Postgres/Redis if scaled out.
-_chat_log = defaultdict(deque)  # ip -> monotonic timestamps of /chat calls in the last 24h
+# Per visitor (IPv4 address or IPv6 /64), kept in memory; see core/limits.py
+_chat_log = limits.SlidingWindow(86400)
 
 def check_rate_limit(ip):
-    now = time.monotonic()
-    log = _chat_log[ip]
-    while log and now - log[0] > 86400:
-        log.popleft()
-    last_minute = sum(1 for t in log if now - t < 60)
-    if last_minute >= RATE_LIMIT_PER_MINUTE or len(log) >= RATE_LIMIT_PER_DAY:
+    key = limits.visitor_key(ip)
+    if (_chat_log.count(key, within=60) >= RATE_LIMIT_PER_MINUTE
+            or _chat_log.count(key) >= RATE_LIMIT_PER_DAY):
         raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
-    log.append(now)
+    _chat_log.add(key)
+
+_lead_log = limits.SlidingWindow(3600)
+
+def check_lead_rate_limit(ip):
+    key = limits.visitor_key(ip)
+    if _lead_log.count(key) >= LEAD_LIMIT_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait a moment.")
+    _lead_log.add(key)
 
 def default_client():
     try:
@@ -135,6 +186,11 @@ def parse_conversation_id(session_id):
     except ValueError:
         return None
 
+def embed_origin(client, origin):
+    """The website the chat came from, kept only when it is one of the client's allowed origins (or the test page)."""
+    origin = (origin or "").strip().rstrip("/")
+    return origin if origin in client["allowed_origins"] or origin == config.PUBLIC_BASE_URL else None
+
 def read_text(path):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -149,7 +205,7 @@ def get_settings_or_503(client_id):
 async def demo_page():
     """A stand-in host page with the widget embedded, for local testing."""
     client = resolve_client(None)
-    return read_text("static/demo.html").replace("__WIDGET_KEY__", client["widget_key"])
+    return read_text("static/demo.html").replace("__WIDGET_KEY__", html.escape(client["widget_key"], quote=True))
 
 @app.get("/widget.js")
 async def widget_loader():
@@ -158,7 +214,7 @@ async def widget_loader():
                         headers={"Cache-Control": "public, max-age=300"})
 
 @app.get("/widget", response_class=HTMLResponse)
-async def widget_page(key: str):
+async def widget_page(key: str = Query(max_length=64)):
     """The chat panel, loaded by widget.js in an iframe."""
     client = resolve_client(key)
     settings = get_settings_or_503(client["id"])
@@ -180,13 +236,15 @@ async def widget_page(key: str):
     page = read_text(f"{WIDGET_DIR}/index.html").replace("__CONFIG__", config_json).replace("__V__", ASSET_VERSION)
 
     # Browsers refuse to show the panel inside any site not on the client's allowed list
-    frame_ancestors = " ".join(["'self'", *client["allowed_origins"]])
+    # Only well-formed origins go in: a ";" or space in one would add or change CSP directives
+    frame_ancestors = " ".join(["'self'", *(o for o in client["allowed_origins"]
+                                            if net_safety.ORIGIN_PATTERN.fullmatch(o))])
     csp = (f"frame-ancestors {frame_ancestors}; default-src 'self'; img-src 'self' https: data:; "
            f"style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'")
     return HTMLResponse(page, headers={"Content-Security-Policy": csp, "Cache-Control": "no-cache"})
 
 @app.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: uuid.UUID, key: str):
+async def get_conversation(conversation_id: uuid.UUID, key: str = Query(max_length=64)):
     client = resolve_client(key)
     rows = db.get_conversation_messages(client["id"], conversation_id)
     if not rows:
@@ -228,17 +286,19 @@ async def chat(request: ChatRequest, http_request: Request):
 
     conversation_id = db.get_or_create_conversation(
         client_id, parse_conversation_id(request.session_id),
-        request.origin or http_request.headers.get("origin"),
+        embed_origin(client, request.origin or http_request.headers.get("origin")),
     )
     history = db.get_recent_messages(conversation_id, HISTORY_TURNS * 2)
     user_message = request.message
 
     start_time = time.time()
     print(f"\n======================================")
-    print(f"[START] Processing new message: '{user_message}'")
+    # Not the text itself: logs shouldn't hold visitors' personal details, and a line break in it could fake log lines
+    print(f"[START] Conversation {conversation_id}: new message ({len(user_message)} chars)")
     print(f"[ACTION] Running Semantic Router...")
 
-    result = chat_engine.answer(client_id, settings, user_message, history)
+    allow_ai = MAX_DAILY_AI_REPLIES <= 0 or db.count_ai_replies_today(client_id) < MAX_DAILY_AI_REPLIES
+    result = chat_engine.answer(client_id, settings, user_message, history, allow_ai=allow_ai)
 
     end_time = time.time()
     elapsed = end_time - start_time
@@ -272,19 +332,21 @@ async def chat(request: ChatRequest, http_request: Request):
 @app.post("/leads")
 async def create_lead(request: LeadRequest, http_request: Request, background_tasks: BackgroundTasks):
     """The widget's "Want our team to call you?" form."""
-    check_rate_limit(http_request.client.host)
+    check_lead_rate_limit(http_request.client.host)
     client = resolve_client(request.widget_key)
     conversation_id = parse_conversation_id(request.session_id)
     if not conversation_id or not db.get_conversation_messages(client["id"], conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     try:
-        lead = leads.save_lead(client, conversation_id, request.name, request.phone)
+        lead, alert = leads.save_lead(client, conversation_id, request.name, request.phone)
     except leads.InvalidPhone as e:
         raise HTTPException(status_code=422, detail=str(e))
+    if not alert:
+        return {"ok": True}
 
     # Summary, dashboard alert and email happen after the visitor gets their confirmation
     background_tasks.add_task(
         leads.process_new_lead, client, lead["id"], conversation_id, request.name.strip() or None,
-        leads.normalize_phone(request.phone), lead["created_at"], str(http_request.base_url),
+        leads.normalize_phone(request.phone), lead["created_at"],
     )
     return {"ok": True}

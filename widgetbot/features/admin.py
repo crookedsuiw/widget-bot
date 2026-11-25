@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from core import auth
+from core import config
 from core import db
 from features import leads
 
@@ -126,12 +127,17 @@ UPDATE_LEAD_QUERY = """
 
 # --- Request models ---
 
+# Filter values the dashboard sends; anything else is a 422 instead of reaching a query
+LeadStatus = Literal["new", "contacted", "converted", "not_interested"]
+InterestFilter = Literal["hot", "warm", "cold"]
+IntentFilter = Literal["purchase_interest", "product_question", "support", "other"]
+
 class LoginRequest(BaseModel):
     username: str = Field(max_length=100)
     password: str = Field(max_length=200)
 
 class LeadUpdate(BaseModel):
-    status: Literal["new", "contacted", "converted", "not_interested"] | None = None
+    status: LeadStatus | None = None
     notes: str | None = Field(default=None, max_length=4000)
 
 class SeenRequest(BaseModel):
@@ -213,8 +219,8 @@ async def events(request: Request, account=Depends(auth.require_account)):
 # --- API: leads ---
 
 @api.get("/leads")
-async def list_leads(account=Depends(auth.require_account),
-                     status: str | None = None, interest: str | None = None, page: int = Query(1, ge=1)):
+async def list_leads(account=Depends(auth.require_account), status: LeadStatus | None = None,
+                     interest: InterestFilter | None = None, page: int = Query(1, ge=1)):
     filters, params = [], {"client_id": account["client_id"], "limit": PAGE_SIZE, "offset": (page - 1) * PAGE_SIZE}
     if status:
         filters.append("AND l.status = %(status)s")
@@ -290,7 +296,8 @@ def _query_conversations(account, limit, offset, **filters):
 class ConversationFilters:
     """Shared query-string filters for the list and the CSV export."""
     def __init__(self, date_from: date | None = Query(None, alias="from"), date_to: date | None = Query(None, alias="to"),
-                 q: str | None = Query(None, max_length=200), interest: str | None = None, intent: str | None = None,
+                 q: str | None = Query(None, max_length=200), interest: InterestFilter | None = None,
+                 intent: IntentFilter | None = None,
                  has_lead: bool = False, thumbs_down: bool = False, unanswered: bool = False, errors: bool = False):
         self.values = dict(date_from=date_from, date_to=date_to, q=q, interest=interest, intent=intent,
                            has_lead=has_lead, thumbs_down=thumbs_down, unanswered=unanswered, errors=errors)
@@ -308,10 +315,9 @@ def _csv_cell(value):
     return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 @api.get("/conversations.csv")
-async def export_conversations(request: Request, account=Depends(auth.require_account),
-                               filters: ConversationFilters = Depends()):
+async def export_conversations(account=Depends(auth.require_account), filters: ConversationFilters = Depends()):
     rows = _query_conversations(account, CSV_MAX_ROWS, 0, **filters.values)
-    base = str(request.base_url).rstrip("/")
+    base = config.PUBLIC_BASE_URL
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(["Started", "Last message", "First question", "Summary", "Interest", "Intent", "Messages",

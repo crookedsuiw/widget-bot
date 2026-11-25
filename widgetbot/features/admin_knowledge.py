@@ -6,10 +6,11 @@ Every query is scoped to the logged-in account's client_id.
 import asyncio
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints
 from typing import Annotated
 from core import auth
 from core import db
+from core import text_safety
 from core.embeddings import get_ov_embedding
 
 api = APIRouter(prefix="/admin/api/knowledge", dependencies=[Depends(auth.require_account)])
@@ -60,8 +61,10 @@ DELETE_NOTE_QUERY = "DELETE FROM knowledge_notes WHERE id = %s AND client_id = %
 # --- Request bodies ---
 
 class NoteBody(BaseModel):
-    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
-    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+                     AfterValidator(text_safety.non_empty(text_safety.clean_line))]
+    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+                    AfterValidator(text_safety.non_empty(text_safety.clean_multiline))]
 
 class HideBody(BaseModel):
     text_hash: str = Field(pattern=r"^[0-9a-f]{32}$")
