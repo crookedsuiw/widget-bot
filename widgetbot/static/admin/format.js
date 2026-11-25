@@ -92,31 +92,13 @@ export function botHtml(text) {
         ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:)/i,
         RETURN_DOM_FRAGMENT: true,
     });
-    // Only links may carry a class (action-btn), same as the widget
-    fragment.querySelectorAll('[class]').forEach((node) => {
-        if (node.nodeName !== 'A') node.removeAttribute('class');
-    });
     fragment.querySelectorAll('a').forEach((a) => {
-        // A link whose address was removed (not https, mailto or tel) shows as plain text
-        if (!a.getAttribute('href')) {
-            a.replaceWith(document.createTextNode(a.textContent));
-            return;
-        }
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         if (!a.classList.contains('action-btn')) a.removeAttribute('class');
         else a.className = 'action-btn';
     });
     return fragment;
-}
-
-/** The URL if it is a web address (http or https), else null; h() leaves out an href that is null. */
-export function safeHref(url) {
-    try {
-        return /^https?:$/.test(new URL(url).protocol) ? url : null;
-    } catch {
-        return null;
-    }
 }
 
 export function sourceLabel(url) {

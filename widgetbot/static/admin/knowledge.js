@@ -107,7 +107,7 @@ async function searchCard(card, ctx, sync) {
     function resultRow(r) {
         const source = r.note_id
             ? h('span', { class: 'pill pill-lead', text: `Your note: ${r.note_title}` })
-            : h('a', { class: 'source-link', href: fmt.safeHref(r.url), target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(r.url) });
+            : h('a', { class: 'source-link', href: r.url, target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(r.url) });
         return h('div', { class: 'kb-result' },
             h('strong', { class: 'match-score', text: r.similarity.toFixed(2) }),
             h('div', { class: 'kb-body' },
@@ -215,7 +215,7 @@ async function crawlCard(card, ctx, onCrawled) {
                 h('input', { type: 'checkbox', checked: source.enabled, disabled: running, 'aria-label': `Crawl ${source.url}`,
                     onchange: (e) => updateSource(source, { enabled: e.target.checked }) }),
                 h('span', { class: 'switch-track', 'aria-hidden': 'true' })),
-            h('a', { class: 'source-link', href: fmt.safeHref(source.url), target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(source.url) }),
+            h('a', { class: 'source-link', href: source.url, target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(source.url) }),
             fmt.select(STRATEGY, source.strategy, { class: 'select select-small', 'aria-label': 'Page type', disabled: running,
                 onchange: (e) => updateSource(source, { strategy: e.target.value }) }),
             h('span', { class: 'source-result' }, pageResult(source)),

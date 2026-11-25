@@ -303,7 +303,7 @@ async function renderEditor(view, ctx, profileId) {
     function renderLinks() {
         linksBox.replaceChildren(...(links.length ? links.map((link) => h('div', { class: 'link-item' },
             h('strong', { class: 'link-item-label', text: link.label }),
-            h('a', { class: 'source-link link-item-url', href: fmt.safeHref(link.url), target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(link.url), title: link.url }),
+            h('a', { class: 'source-link link-item-url', href: link.url, target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(link.url), title: link.url }),
             h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Remove ${link.label}`, title: 'Remove', onclick: () => {
                 links = links.filter((l) => l !== link);
                 renderLinks();
@@ -578,7 +578,7 @@ async function renderEditor(view, ctx, profileId) {
                 answer.wants_callback ? h('span', { class: 'pill pill-lead', text: 'Callback card' }) : null,
                 answer.unanswered ? h('span', { class: 'pill pill-flag', text: 'Unanswered' }) : null),
             answer.sources.length ? h('div', { class: 't-sources' }, answer.sources.map((url) =>
-                h('a', { class: 'pill', href: fmt.safeHref(url), target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(url) }))) : null);
+                h('a', { class: 'pill', href: url, target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(url) }))) : null);
     }
 
     function renderThread() {

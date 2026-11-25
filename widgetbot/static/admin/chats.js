@@ -141,7 +141,7 @@ function botMessage(m, fmt, question) {
         h('div', { class: 't-bot-bubble' }, fmt.botHtml(m.content)),
         m.error ? h('div', { class: 't-error', text: `Error: ${m.error}` }) : null,
         m.sources && m.sources.length ? h('div', { class: 't-sources' }, 'Sources:',
-            m.sources.map((url) => h('a', { href: fmt.safeHref(url), target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(url) }))) : null,
+            m.sources.map((url) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text: fmt.sourceLabel(url) }))) : null,
         h('div', { class: 't-meta' },
             h('span', { text: fmt.TIER[m.tier] || 'Reply' }),
             tokens ? h('span', { text: tokens }) : null,
