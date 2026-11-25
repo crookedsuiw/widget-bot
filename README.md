@@ -128,36 +128,10 @@ Browsers pick up the changes after a restart (`./run.sh`). The widget's file ver
 - Serve the app over HTTPS behind a reverse proxy (nginx, Caddy), and set `COOKIE_SECURE=1` in `.env`.
 - Use a strong database password. Keep it only in `.env`.
 - Run a single worker. `run.sh` already does this; don't add `--reload` or extra workers. Rate limits, login lockouts, live lead alerts and crawls are kept in memory.
-- Run the crawler proxy and set `CRAWLER_PROXY_URL` (see below). Crawling stays off until it is set.
 - Set the `SMTP_*` settings if your team should get lead emails.
 - Check that `allowed_origins` matches your live domain exactly.
 - Back up PostgreSQL regularly. It holds all settings, FAQs, chats, leads and knowledge.
 - Keep `run.sh` running under a process manager (systemd, supervisor) so it restarts after a crash or reboot.
-
-## Crawler proxy
-
-The crawler opens pages in a real browser on your server. A crawled page (or a page it redirects to) could
-otherwise make that browser read services that are only reachable from the server: the database admin, other
-apps on `localhost`, your private network, or the cloud provider's metadata address. So every crawler request
-goes through a proxy that refuses private and internal addresses.
-
-Any filtering forward proxy works. [smokescreen](https://github.com/stripe/smokescreen) blocks private, loopback
-and link-local addresses by default:
-
-```bash
-smokescreen --listen-ip=127.0.0.1 --listen-port=4750
-```
-
-Then set `CRAWLER_PROXY_URL=http://127.0.0.1:4750` in `.env`, and keep the proxy running under the same process
-manager as `run.sh`. Check it before going live; the first command must be refused, the second must work:
-
-```bash
-curl -x http://127.0.0.1:4750 http://127.0.0.1:8000/      # refused by the proxy
-curl -x http://127.0.0.1:4750 -I https://example.com/      # works
-```
-
-The proxy must only listen on `127.0.0.1`. For a quick local test without it, set `CRAWLER_ALLOW_DIRECT=1`
-(never on a server).
 
 ## Database changes
 

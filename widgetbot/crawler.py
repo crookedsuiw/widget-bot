@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import os
 from playwright.async_api import async_playwright
 import psycopg
 from psycopg.types.json import Jsonb
@@ -10,39 +9,11 @@ from bs4 import BeautifulSoup
 import uuid
 from core.db import DATABASE_URL, sole_client_slug
 from core.embeddings import get_ov_embedding
-from core import net_safety
 
 EMBED_BATCH_SIZE = 32  # Chunks embedded per OpenVINO forward pass
 # A run still marked 'running' after this long crashed without recording it (the server stopped mid-crawl)
 CRAWL_STALE_MINUTES = 30
 INTERRUPTED_ERROR = "Interrupted: the server stopped before the crawl finished"
-
-# The crawler is a real browser on our server, so every request it makes goes through a filtering proxy that
-# refuses private/internal addresses (see DEVELOPING.md). It is what stops redirects and in-page scripts from
-# reaching internal services. CRAWLER_ALLOW_DIRECT=1 skips it, for local development only.
-CRAWLER_PROXY_URL = os.environ.get("CRAWLER_PROXY_URL", "").strip()
-CRAWLER_ALLOW_DIRECT = os.environ.get("CRAWLER_ALLOW_DIRECT") == "1"
-CHROMIUM_ARGS = [
-    # WebRTC can open UDP connections that skip the HTTP proxy
-    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-    "--webrtc-ip-handling-policy=disable_non_proxied_udp",
-]
-
-def proxy_problem():
-    """Why crawling is not allowed right now, or None."""
-    if CRAWLER_PROXY_URL or CRAWLER_ALLOW_DIRECT:
-        return None
-    return ("Crawling is turned off until CRAWLER_PROXY_URL is set in .env "
-            "(a proxy that blocks private addresses, see DEVELOPING.md).")
-
-async def _block_internal_requests(route, cache):
-    """Second layer behind the proxy: drops any request (page, script, image, fetch) to a non-public host."""
-    url = route.request.url
-    if url.startswith(("data:", "blob:")) or await net_safety.is_public_url(url, cache):
-        await route.continue_()
-    else:
-        print(f"[WARN] Crawler blocked a request to a non-public address: {url[:200]}")
-        await route.abort("blockedbyclient")
 
 class CrawlAlreadyRunning(Exception):
     pass
@@ -206,32 +177,12 @@ async def run_crawl(client_id, run_id=None):
         with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
             conn.execute(SAVE_PAGES_QUERY, (Jsonb(pages), run_id))
 
-        problem = proxy_problem()
-        if problem:
-            raise RuntimeError(problem)
-
         extracted_data = []
         async with async_playwright() as p:
-            launch_options = {"headless": True, "args": CHROMIUM_ARGS}
-            if CRAWLER_PROXY_URL:
-                # <-loopback> makes Chromium send localhost through the proxy too (it bypasses it by default)
-                launch_options["proxy"] = {"server": CRAWLER_PROXY_URL, "bypass": "<-loopback>"}
-            browser = await p.chromium.launch(**launch_options)
-            # Service workers' requests are not seen by route(), so they are not allowed to start
-            context = await browser.new_context(service_workers="block")
-            dns_cache = {}
-            await context.route("**/*", lambda route: _block_internal_requests(route, dns_cache))
-            page = await context.new_page()
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
 
             for entry in pages:
-                # Checked again at crawl time: covers seeded rows and host names whose DNS changed since they were added
-                try:
-                    await asyncio.to_thread(net_safety.check_public_url, entry["url"])
-                except net_safety.UnsafeURL as e:
-                    entry.update(ok=False, error=str(e))
-                    with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
-                        conn.execute(SAVE_PAGES_QUERY, (Jsonb(pages), run_id))
-                    continue
                 text, error = await fetch_page_content(entry["url"], page)
                 entry.update(ok=bool(text), error=error or None)
                 if text:
@@ -287,8 +238,6 @@ if __name__ == "__main__":
         row = conn.execute(GET_CLIENT_ID_QUERY, (args.client,)).fetchone()
     if row is None:
         raise SystemExit(f"Unknown client '{args.client}'. Run seed.py first.")
-    if proxy_problem():
-        raise SystemExit(proxy_problem() + " For a local test only, set CRAWLER_ALLOW_DIRECT=1 instead.")
 
     try:
         asyncio.run(run_crawl(row[0]))
