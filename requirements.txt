@@ -8,7 +8,6 @@ sentence-transformers
 torch
 playwright
 beautifulsoup4
-nh3
 langchain-text-splitters
 optimum-intel
 openvino

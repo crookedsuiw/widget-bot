@@ -1,6 +1,5 @@
 """Callback requests from the widget: validation, storage and manager alerts (dashboard push + email)."""
 import asyncio
-import html
 import json
 import os
 import re
@@ -128,7 +127,7 @@ def publish(client_id, event_type, data):
 # --- Email ---
 
 def _plain(text):
-    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text or ""))).strip()
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
 
 def smtp_configured():
     return bool(SMTP_HOST and SMTP_FROM)
