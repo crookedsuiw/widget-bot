@@ -40,7 +40,6 @@ DEFAULT_CLIENT_SLUG = os.environ.get("DEFAULT_CLIENT_SLUG")
 MAX_MESSAGE_CHARS = 1000      # Longer messages are rejected before any tokens are spent
 RATE_LIMIT_PER_MINUTE = 20    # /chat calls per visitor IP
 RATE_LIMIT_PER_DAY = 200
-LEAD_LIMIT_PER_HOUR = 5       # Callback form sends per visitor
 # AI replies per client per 24 hours, whoever asks; FAQ answers don't count. 0 = no cap.
 MAX_DAILY_AI_REPLIES = int(os.environ.get("MAX_DAILY_AI_REPLIES_PER_CLIENT", "2000"))
 MAX_HISTORY_IDS = 20          # Conversations the widget remembers per browser
@@ -123,14 +122,6 @@ def check_rate_limit(ip):
             or _chat_log.count(key) >= RATE_LIMIT_PER_DAY):
         raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
     _chat_log.add(key)
-
-_lead_log = limits.SlidingWindow(3600)
-
-def check_lead_rate_limit(ip):
-    key = limits.visitor_key(ip)
-    if _lead_log.count(key) >= LEAD_LIMIT_PER_HOUR:
-        raise HTTPException(status_code=429, detail="Too many requests. Please wait a moment.")
-    _lead_log.add(key)
 
 def default_client():
     try:
@@ -295,17 +286,15 @@ async def chat(request: ChatRequest, http_request: Request):
 @app.post("/leads")
 async def create_lead(request: LeadRequest, http_request: Request, background_tasks: BackgroundTasks):
     """The widget's "Want our team to call you?" form."""
-    check_lead_rate_limit(http_request.client.host)
+    check_rate_limit(http_request.client.host)
     client = resolve_client(request.widget_key)
     conversation_id = parse_conversation_id(request.session_id)
     if not conversation_id or not db.get_conversation_messages(client["id"], conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     try:
-        lead, alert = leads.save_lead(client, conversation_id, request.name, request.phone)
+        lead = leads.save_lead(client, conversation_id, request.name, request.phone)
     except leads.InvalidPhone as e:
         raise HTTPException(status_code=422, detail=str(e))
-    if not alert:
-        return {"ok": True}
 
     # Summary, dashboard alert and email happen after the visitor gets their confirmation
     background_tasks.add_task(
