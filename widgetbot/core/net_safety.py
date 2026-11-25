@@ -5,24 +5,12 @@ Resolving is what catches the tricks a text check misses: "127.1", "2130706433",
 and DNS names that point at 127.0.0.1, the LAN or the cloud metadata service (169.254.169.254).
 
 This check is one layer only. Redirects and DNS that changes between check and fetch are stopped by the
-egress proxy the crawler runs behind (CRAWLER_PROXY_URL, see "Crawler proxy" in README.md).
+egress proxy the crawler runs behind (CRAWLER_PROXY_URL, see DEVELOPING.md).
 """
 import asyncio
 import ipaddress
-import re
 import socket
 from urllib.parse import urlsplit
-
-# A website origin as browsers send it: scheme + host (+ port), nothing else. Safe to put in a CSP header.
-ORIGIN_PATTERN = re.compile(r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?")
-
-def is_https_url(url):
-    """An absolute https address with a host name (for links the widget shows)."""
-    try:
-        parts = urlsplit(url or "")
-    except ValueError:
-        return False
-    return parts.scheme == "https" and bool(parts.hostname) and not any(ch.isspace() for ch in url)
 
 class UnsafeURL(ValueError):
     """The message is safe to show to the dashboard user."""

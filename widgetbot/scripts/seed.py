@@ -12,8 +12,6 @@ from psycopg.types.json import Jsonb
 from pgvector.psycopg import register_vector
 from core.db import DATABASE_URL
 from core.embeddings import get_ov_embedding
-from core import net_safety
-from core import text_safety
 
 # Params: (slug, name, widget_key, allowed_origins)
 UPSERT_CLIENT_QUERY = """
@@ -84,41 +82,11 @@ INSERT_SOURCE_QUERY = """
     ON CONFLICT (client_id, url) DO NOTHING
 """
 
-STRATEGIES = ("html", "recursive_only")
-
-def validate(c):
-    """Checks the client file before anything is written. Returns a list of problems (empty = fine)."""
-    problems = []
-    for origin in c.ALLOWED_ORIGINS:
-        if not net_safety.ORIGIN_PATTERN.fullmatch(origin):
-            problems.append(f"ALLOWED_ORIGINS: '{origin}' must be scheme + domain only, e.g. https://example.com")
-    if c.PRIVACY_URL is not None and not net_safety.is_https_url(c.PRIVACY_URL):
-        problems.append("PRIVACY_URL must be an https:// address or None")
-    logo = c.LOGO_URL
-    if logo is not None and not (net_safety.is_https_url(logo)
-                                 or (logo.startswith("/static/brand/") and ".." not in logo and " " not in logo)):
-        problems.append('LOGO_URL must start with "/static/brand/", be an https:// address, or be None')
-    for link in c.APPROVED_LINKS:
-        if not link.get("label") or not net_safety.is_https_url(link.get("url")):
-            problems.append(f"APPROVED_LINKS: {link!r} needs a label and an https:// url")
-    for url, strategy in c.KNOWLEDGE_SOURCES:
-        if strategy not in STRATEGIES:
-            problems.append(f"KNOWLEDGE_SOURCES: '{url}' has unknown strategy '{strategy}'")
-        try:
-            net_safety.check_public_url(url)
-        except net_safety.UnsafeURL as e:
-            problems.append(f"KNOWLEDGE_SOURCES: '{url}': {e}")
-    return problems
-
 def seed(slug):
     c = importlib.import_module(f"scripts.clients.{slug}")
-    problems = validate(c)
-    if problems:
-        raise SystemExit(f"scripts/clients/{slug}.py has problems, nothing was written:\n- " + "\n- ".join(problems))
     questions = list(c.FAQS.keys())
     faq_embeddings = get_ov_embedding(questions).numpy() if questions else []
-    notes = [(text_safety.clean_line(title), text_safety.clean_multiline(body))
-             for title, body in getattr(c, "KNOWLEDGE_NOTES", [])]
+    notes = [(title.strip(), body.strip()) for title, body in getattr(c, "KNOWLEDGE_NOTES", [])]
     for title, body in notes:
         # Same limits as the dashboard's note editor
         if not (1 <= len(title) <= 120 and 1 <= len(body) <= 2000):
