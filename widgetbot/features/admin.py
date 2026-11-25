@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from core import auth
-from core import config
 from core import db
 from features import leads
 
@@ -309,9 +308,10 @@ def _csv_cell(value):
     return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 @api.get("/conversations.csv")
-async def export_conversations(account=Depends(auth.require_account), filters: ConversationFilters = Depends()):
+async def export_conversations(request: Request, account=Depends(auth.require_account),
+                               filters: ConversationFilters = Depends()):
     rows = _query_conversations(account, CSV_MAX_ROWS, 0, **filters.values)
-    base = config.PUBLIC_BASE_URL
+    base = str(request.base_url).rstrip("/")
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(["Started", "Last message", "First question", "Summary", "Interest", "Intent", "Messages",

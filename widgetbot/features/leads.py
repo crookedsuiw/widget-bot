@@ -8,7 +8,6 @@ import signal
 import smtplib
 from email.message import EmailMessage
 from features import analysis
-from core import config
 from core import db
 
 DEFAULT_COUNTRY_CODE = "+91"
@@ -199,7 +198,7 @@ def send_lead_email(client, lead, dashboard_url):
 
 # --- After a lead is saved ---
 
-async def process_new_lead(client, lead_id, conversation_id, name, phone, created_at):
+async def process_new_lead(client, lead_id, conversation_id, name, phone, created_at, base_url):
     """Summarise the chat, then alert open dashboards and email the client. Runs as a background task."""
     result = await asyncio.to_thread(analysis.summarize_conversation, client["id"], conversation_id, True)
     summary = result["summary"] if result else None
@@ -214,5 +213,5 @@ async def process_new_lead(client, lead_id, conversation_id, name, phone, create
     publish(client["id"], "lead", lead)
 
     client_full = db.get_client_by_id(client["id"])
-    dashboard_url = f"{config.PUBLIC_BASE_URL}/admin/chat-history/{conversation_id}"
+    dashboard_url = f"{base_url.rstrip('/')}/admin/chat-history/{conversation_id}"
     await asyncio.to_thread(send_lead_email, client_full, lead, dashboard_url)

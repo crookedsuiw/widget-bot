@@ -10,9 +10,7 @@ from typing import Literal
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field
-from core import config
 from core import db
 from features import (
     chat_engine,
@@ -61,8 +59,6 @@ async def lifespan(app):
         task.cancel()
 
 app = FastAPI(lifespan=lifespan)
-# Requests addressed to any other host name are refused (400), so the Host header can't be forged
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS, www_redirect=False)
 app.include_router(admin.api)     # /admin/api/* must be registered before the /admin/{page} catch-all
 app.include_router(admin_overview.api)
 app.include_router(admin_prompts.api)
@@ -289,6 +285,6 @@ async def create_lead(request: LeadRequest, http_request: Request, background_ta
     # Summary, dashboard alert and email happen after the visitor gets their confirmation
     background_tasks.add_task(
         leads.process_new_lead, client, lead["id"], conversation_id, request.name.strip() or None,
-        leads.normalize_phone(request.phone), lead["created_at"],
+        leads.normalize_phone(request.phone), lead["created_at"], str(http_request.base_url),
     )
     return {"ok": True}
