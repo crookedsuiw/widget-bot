@@ -293,8 +293,7 @@ async def chat(request: ChatRequest, http_request: Request):
 
     start_time = time.time()
     print(f"\n======================================")
-    # Not the text itself: logs shouldn't hold visitors' personal details, and a line break in it could fake log lines
-    print(f"[START] Conversation {conversation_id}: new message ({len(user_message)} chars)")
+    print(f"[START] Processing new message: '{user_message}'")
     print(f"[ACTION] Running Semantic Router...")
 
     allow_ai = MAX_DAILY_AI_REPLIES <= 0 or db.count_ai_replies_today(client_id) < MAX_DAILY_AI_REPLIES
