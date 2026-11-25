@@ -3,10 +3,11 @@ import hashlib
 import hmac
 import os
 import secrets
+import time
+from collections import defaultdict, deque
 from urllib.parse import urlparse
 from fastapi import HTTPException, Request
 from core import db
-from core import limits
 
 SESSION_COOKIE = "widgetbot_admin"
 SESSION_DAYS = 7
@@ -14,9 +15,8 @@ SESSION_DAYS = 7
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE") == "1"
 
 MIN_PASSWORD_LENGTH = 10
-LOGIN_MAX_FAILURES = 5                 # per visitor (IPv4 address or IPv6 /64) ...
-LOGIN_MAX_FAILURES_PER_USERNAME = 10   # ... and per username, however many addresses try it ...
-LOGIN_WINDOW_SECONDS = 15 * 60         # ... within this window
+LOGIN_MAX_FAILURES = 5          # per IP ...
+LOGIN_WINDOW_SECONDS = 15 * 60  # ... within this window
 
 # scrypt cost parameters (stored with each hash so they can be raised later)
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
@@ -67,34 +67,28 @@ def verify_password(password, stored):
 def _token_hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
-_ip_failures = limits.SlidingWindow(LOGIN_WINDOW_SECONDS)
-_username_failures = limits.SlidingWindow(LOGIN_WINDOW_SECONDS)
+_login_failures = defaultdict(deque)  # ip -> monotonic times of failed logins
 
-# Checked when the username doesn't exist, so a wrong username takes as long as a wrong password
-# (otherwise the response time tells which usernames exist)
-_DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
-
-def check_login_allowed(ip_key, username_key):
-    if (_ip_failures.count(ip_key) >= LOGIN_MAX_FAILURES
-            or _username_failures.count(username_key) >= LOGIN_MAX_FAILURES_PER_USERNAME):
+def check_login_allowed(ip):
+    now = time.monotonic()
+    failures = _login_failures[ip]
+    while failures and now - failures[0] > LOGIN_WINDOW_SECONDS:
+        failures.popleft()
+    if len(failures) >= LOGIN_MAX_FAILURES:
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
 
 def login(username, password, ip, user_agent):
     """Returns a new session token, or None when the credentials are wrong."""
-    ip_key, username_key = limits.visitor_key(ip), username.lower()
-    check_login_allowed(ip_key, username_key)
+    check_login_allowed(ip)
     with db.pool.connection() as conn:
         account = conn.execute(GET_ACCOUNT_BY_USERNAME_QUERY, (username,)).fetchone()
-        password_ok = verify_password(password, account["password_hash"] if account else _DUMMY_HASH)
-        if not account or not password_ok:
-            _ip_failures.add(ip_key)
-            _username_failures.add(username_key)
+        if not account or not verify_password(password, account["password_hash"]):
+            _login_failures[ip].append(time.monotonic())
             return None
         token = secrets.token_urlsafe(32)
         conn.execute(CREATE_SESSION_QUERY,
                      (_token_hash(token), account["id"], SESSION_DAYS, ip, (user_agent or "")[:300]))
-    _ip_failures.clear(ip_key)
-    _username_failures.clear(username_key)
+    _login_failures.pop(ip, None)
     return token
 
 def logout(token):
