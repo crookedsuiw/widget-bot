@@ -33,7 +33,7 @@ def proxy_problem():
     if CRAWLER_PROXY_URL or CRAWLER_ALLOW_DIRECT:
         return None
     return ("Crawling is turned off until CRAWLER_PROXY_URL is set in .env "
-            "(a proxy that blocks private addresses, see 'Crawler proxy' in README.md).")
+            "(a proxy that blocks private addresses, see "Crawler proxy" in README.md).")
 
 async def _block_internal_requests(route, cache):
     """Second layer behind the proxy: drops any request (page, script, image, fetch) to a non-public host."""
